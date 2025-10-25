@@ -66,37 +66,26 @@ class ScreenCapture(ABC):
     def setup_lol_rois(self, width: int, height: int):
         """
         Setup standard League of Legends UI regions of interest
-        Assumes 1920x1080 resolution, will scale for others
+        Uses normalized coordinates that scale to any resolution
         """
-        scale_x = width / 1920.0
-        scale_y = height / 1080.0
+        # Normalized ROI coordinates (x, y, w, h) as fractions of screen dimensions
+        # These are calibrated for standard LoL UI layout
+        normalized_rois = {
+            "player_hp": (0.391, 0.963, 0.163, 0.016),
+            "player_mana": (0.391, 0.979, 0.161, 0.012),
+            "gold": (0.564, 0.979, 0.053, 0.016),
+            "cs": (0.903, 0.005, 0.035, 0.021),
+            "game_time": (0.948, 0.002, 0.049, 0.026),
+            "minimap": (0.839, 0.747, 0.153, 0.242),  # 3024×1890: TL(2536,1411) BR(2998,1868)
+        }
 
-        def scale_roi(x, y, w, h):
-            return (int(x * scale_x), int(y * scale_y), int(w * scale_x), int(h * scale_y))
-
-        # Gold count (bottom-center area, near champion portrait)
-        x, y, w, h = scale_roi(440, 1042, 110, 28)
-        self.rois.append(ROI("gold", x, y, w, h))
-
-        # CS count (bottom-center, to the right of gold)
-        x, y, w, h = scale_roi(555, 1042, 95, 28)
-        self.rois.append(ROI("cs", x, y, w, h))
-
-        # Game timer (top-center)
-        x, y, w, h = scale_roi(920, 2, 80, 22)
-        self.rois.append(ROI("game_time", x, y, w, h))
-
-        # Player HP bar (bottom-left, above abilities)
-        x, y, w, h = scale_roi(285, 990, 250, 25)
-        self.rois.append(ROI("player_hp", x, y, w, h))
-
-        # Player mana bar (bottom-left, below HP)
-        x, y, w, h = scale_roi(285, 1018, 250, 20)
-        self.rois.append(ROI("player_mana", x, y, w, h))
-
-        # Minimap area (bottom-right corner)
-        x, y, w, h = scale_roi(1620, 780, 300, 300)
-        self.rois.append(ROI("minimap", x, y, w, h))
+        # Convert normalized coordinates to pixel coordinates
+        for roi_name, (norm_x, norm_y, norm_w, norm_h) in normalized_rois.items():
+            x = int(norm_x * width)
+            y = int(norm_y * height)
+            w = int(norm_w * width)
+            h = int(norm_h * height)
+            self.rois.append(ROI(roi_name, x, y, w, h))
 
     def extract_rois(self, frame: np.ndarray) -> dict:
         """Extract all ROIs from a frame"""
