@@ -134,13 +134,81 @@ class RiotAPIClient:
             return None
 
     async def get_summoner_by_name(self, summoner_name: str) -> Optional[Dict]:
-        """Get summoner data by name"""
-        endpoint = f"/lol/summoner/v4/summoners/by-name/{summoner_name}"
+        """
+        Get summoner data by name
+        Note: Use URL-encoded name. For special characters, use get_summoner_by_riot_id instead.
+        """
+        import urllib.parse
+        encoded_name = urllib.parse.quote(summoner_name)
+        endpoint = f"/lol/summoner/v4/summoners/by-name/{encoded_name}"
         return await self._request(endpoint)
 
+    async def get_summoner_by_riot_id(self, game_name: str, tag_line: str) -> Optional[Dict]:
+        """
+        Get summoner data by Riot ID (GameName#TAG)
+        This is the new preferred method for Riot's unified platform
+
+        Args:
+            game_name: The game name (e.g., "Faker")
+            tag_line: The tag line (e.g., "KR1", "NA1")
+
+        Example: get_summoner_by_riot_id("Faker", "KR1")
+        """
+        # Get regional routing base
+        regional_base = self._get_regional_base()
+
+        # First, get account info (PUUID) from account-v1
+        endpoint = f"/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}"
+
+        # Temporarily switch to regional base
+        original_base = self.base_url
+        self.base_url = regional_base
+        account_data = await self._request(endpoint)
+        self.base_url = original_base
+
+        if not account_data:
+            logger.error(f"Account not found: {game_name}#{tag_line}")
+            return None
+
+        # Get PUUID
+        puuid = account_data.get('puuid')
+        if not puuid:
+            logger.error(f"No PUUID in account data for {game_name}#{tag_line}")
+            return None
+
+        # Then get summoner data from PUUID
+        endpoint = f"/lol/summoner/v4/summoners/by-puuid/{puuid}"
+        summoner_data = await self._request(endpoint)
+
+        if summoner_data:
+            logger.info(f"✅ Found summoner: {game_name}#{tag_line}")
+
+        return summoner_data
+
+    def _get_regional_base(self) -> str:
+        """Get regional base URL for account-v1 API"""
+        region_mapping = {
+            'na1': 'americas',
+            'br1': 'americas',
+            'la1': 'americas',
+            'la2': 'americas',
+            'euw1': 'europe',
+            'eun1': 'europe',
+            'tr1': 'europe',
+            'ru': 'europe',
+            'kr': 'asia',
+            'jp1': 'asia',
+        }
+        regional_key = region_mapping.get(self.region, 'americas')
+        return self.BASE_URLS.get(regional_key, self.BASE_URLS['americas'])
+
     async def get_active_game(self, encrypted_summoner_id: str) -> Optional[Dict]:
-        """Get active game data for a summoner"""
-        endpoint = f"/lol/spectator/v4/active-games/by-summoner/{encrypted_summoner_id}"
+        """
+        Get active game data for a summoner
+        Args:
+            encrypted_summoner_id: Can be either encryptedSummonerId or encryptedPUUID
+        """
+        endpoint = f"/lol/spectator/v5/active-games/by-summoner/{encrypted_summoner_id}"
         return await self._request(endpoint, use_cache=False)
 
     async def get_match_history(self, puuid: str, start: int = 0, count: int = 20) -> Optional[list]:
@@ -162,3 +230,72 @@ class RiotAPIClient:
         """Get free champion rotations"""
         endpoint = "/lol/platform/v3/champion-rotations"
         return await self._request(endpoint)
+
+    async def get_champion_data(self) -> Optional[Dict]:
+        """
+        Get static champion data from Data Dragon (no rate limit)
+        Returns: {champion_id: {name, title, abilities, ...}}
+        """
+        url = "https://ddragon.leagueoflegends.com/cdn/14.1.1/data/en_US/champion.json"
+
+        try:
+            if not self.session:
+                self.session = aiohttp.ClientSession()
+
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"Loaded {len(data.get('data', {}))} champions from Data Dragon")
+                    return data
+                else:
+                    logger.error(f"Failed to fetch champion data: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to fetch champion data: {e}")
+            return None
+
+    async def get_summoner_spell_data(self) -> Optional[Dict]:
+        """
+        Get summoner spell data (Flash, Ignite, TP, etc.) from Data Dragon
+        Returns: {spell_id: {name, cooldown, ...}}
+        """
+        url = "https://ddragon.leagueoflegends.com/cdn/14.1.1/data/en_US/summoner.json"
+
+        try:
+            if not self.session:
+                self.session = aiohttp.ClientSession()
+
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"Loaded {len(data.get('data', {}))} summoner spells from Data Dragon")
+                    return data
+                else:
+                    logger.error(f"Failed to fetch summoner spell data: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to fetch summoner spell data: {e}")
+            return None
+
+    async def get_item_data(self) -> Optional[Dict]:
+        """
+        Get item data from Data Dragon for build tracking
+        Returns: {item_id: {name, gold, stats, ...}}
+        """
+        url = "https://ddragon.leagueoflegends.com/cdn/14.1.1/data/en_US/item.json"
+
+        try:
+            if not self.session:
+                self.session = aiohttp.ClientSession()
+
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"Loaded {len(data.get('data', {}))} items from Data Dragon")
+                    return data
+                else:
+                    logger.error(f"Failed to fetch item data: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to fetch item data: {e}")
+            return None

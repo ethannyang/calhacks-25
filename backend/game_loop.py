@@ -18,6 +18,9 @@ from src.models.game_state import (
 )
 from src.ai_engine.rule_engine import RuleEngine
 from src.ai_engine.llm_engine import LLMEngine
+from src.ai_engine.command_manager import CommandManager
+from src.riot_api.client import RiotAPIClient
+from src.riot_api.live_game_manager import LiveGameManager
 
 # Load environment variables
 load_dotenv()
@@ -30,6 +33,7 @@ class GameLoop:
         self.capture = MacOSCapture()
         self.extractor = GameDataExtractor()
         self.rule_engine = RuleEngine()
+        self.command_manager = CommandManager()
 
         # Initialize LLM engine
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
@@ -39,18 +43,39 @@ class GameLoop:
         else:
             self.llm_engine = LLMEngine(anthropic_key)
 
+        # Initialize Riot API and LiveGameManager
+        riot_api_key = os.getenv("RIOT_API_KEY")
+        riot_region = os.getenv("RIOT_REGION", "na1")
+        game_name = os.getenv("RIOT_GAME_NAME")
+        tag_line = os.getenv("RIOT_TAG_LINE")
+
+        self.riot_client = None
+        self.live_game_mgr = None
+
+        if riot_api_key and game_name and tag_line:
+            self.riot_client = RiotAPIClient(riot_api_key, riot_region)
+            self.live_game_mgr = LiveGameManager(self.riot_client, game_name, tag_line)
+            logger.info(f"Riot API integration enabled for {game_name}#{tag_line}")
+        else:
+            logger.warning("Riot API credentials incomplete, live game tracking disabled")
+
         # Configuration
         self.capture_fps = float(os.getenv("CAPTURE_FPS", "1"))
         self.capture_interval = 1.0 / self.capture_fps
 
-        # LLM runs less frequently (every 5 seconds)
-        self.llm_interval = 5.0
+        # LLM runs less frequently (every 2.5 seconds for faster response)
+        self.llm_interval = 2.5
         self.last_llm_time = 0
+
+        # Live API fetch interval (every 10 seconds)
+        self.live_api_interval = 10.0
+        self.last_live_api_time = 0
 
         # State
         self.running = False
         self.game_detected = False
         self.frame_count = 0
+        self.live_game_initialized = False
 
         # WebSocket callback (set externally)
         self.on_command = None
@@ -70,8 +95,7 @@ class GameLoop:
 
     def _build_game_state(self, game_data: dict, frame_time: float) -> Optional[GameState]:
         """
-        Build GameState from OCR extracted data
-        Note: This is simplified - in production you'd integrate with Riot API
+        Build GameState from OCR extracted data + LiveGameManager context
         """
         # Validate required fields
         game_time = game_data.get('game_time')
@@ -79,9 +103,17 @@ class GameLoop:
             logger.warning("Missing game_time, cannot build game state")
             return None
 
-        # Build player state (simplified)
+        # Get live game context if available
+        live_context = {}
+        if self.live_game_mgr and self.live_game_mgr.is_in_game():
+            live_context = self.live_game_mgr.get_context_summary()
+
+        # Build player state with live game data
+        champion_name = live_context.get('player', {}).get('champion', 'Unknown')
+        player_role = live_context.get('player', {}).get('role', 'unknown')
+
         player = PlayerState(
-            champion_name="Unknown",  # Would come from Riot API
+            champion_name=champion_name,
             summoner_name="Player",
             level=10,  # Mock data
             hp=int(game_data.get('hp_percent', 100)),
@@ -171,22 +203,48 @@ class GameLoop:
             if game_state is None:
                 return
 
-            # 5. Run rule engine (fast, always runs)
-            command = self.rule_engine.process(game_state)
+            # 5. Check for item-based recall recommendations (HIGH priority)
+            recall_command = None
+            if self.live_game_mgr and self.live_game_mgr.is_in_game():
+                recall_rec = self.live_game_mgr.get_recall_recommendation(game_state.player.gold)
+                if recall_rec:
+                    recall_command = CoachingCommand(
+                        priority=recall_rec['priority'],
+                        category="recall",
+                        icon="🛒",
+                        message=recall_rec['message'],
+                        duration=8,
+                        timestamp=time.time()
+                    )
 
-            # 6. Run LLM engine (slower, periodic)
+            # 6. Run rule engine (fast, always runs)
+            rule_command = self.rule_engine.process(game_state)
+
+            # 7. Run LLM engine (slower, periodic) with live game context
+            llm_command = None
             if self.llm_engine and time.time() - self.last_llm_time >= self.llm_interval:
                 self.last_llm_time = time.time()
 
-                # Try wave management coaching
-                llm_command = await self.llm_engine.wave_management_coaching(game_state)
-                if llm_command:
-                    command = llm_command  # Override with LLM command if available
+                # Get live context for AI (pass player gold for build recommendations)
+                live_ctx = None
+                if self.live_game_mgr and self.live_game_mgr.is_in_game():
+                    live_ctx = self.live_game_mgr.get_context_summary(current_gold=game_state.player.gold)
 
-            # 7. Broadcast command if available
-            if command and self.on_command:
-                await self.on_command(command)
-                logger.info(f"📢 Command: [{command.priority}] {command.message}")
+                # Try wave management coaching with enhanced context
+                llm_command = await self.llm_engine.wave_management_coaching(game_state, live_ctx)
+
+            # 8. Determine which command to use (priority: recall > LLM > rule)
+            proposed_command = recall_command if recall_command else (llm_command if llm_command else rule_command)
+
+            # 8. Use CommandManager to decide if we should issue this command
+            if proposed_command:
+                should_issue = self.command_manager.should_issue_command(proposed_command, game_state)
+                if should_issue:
+                    # Get the actual command to broadcast (might be completion message)
+                    command_to_send = self.command_manager.get_current_command()
+                    if command_to_send and self.on_command:
+                        await self.on_command(command_to_send)
+                        logger.info(f"📢 Command: [{command_to_send.priority}] {command_to_send.message}")
 
             # Performance metrics
             frame_time = (time.time() - frame_start) * 1000
@@ -201,9 +259,30 @@ class GameLoop:
         self.running = True
         logger.info(f"🎮 Game loop started (FPS: {self.capture_fps})")
 
+        # Initialize LiveGameManager if available
+        if self.live_game_mgr and not self.live_game_initialized:
+            try:
+                await self.live_game_mgr.initialize()
+                self.live_game_initialized = True
+                logger.info("✅ LiveGameManager initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize LiveGameManager: {e}")
+                self.live_game_mgr = None
+
         try:
             while self.running:
                 loop_start = time.time()
+
+                # Fetch live game data periodically
+                if self.live_game_mgr and time.time() - self.last_live_api_time >= self.live_api_interval:
+                    self.last_live_api_time = time.time()
+                    try:
+                        in_game = await self.live_game_mgr.fetch_live_game()
+                        if in_game:
+                            logger.debug(f"Live game data updated - Role: {self.live_game_mgr.player_role}, "
+                                       f"Champion: {self.live_game_mgr.player_champion_name}")
+                    except Exception as e:
+                        logger.error(f"Error fetching live game data: {e}")
 
                 # Process one frame
                 await self.process_frame()

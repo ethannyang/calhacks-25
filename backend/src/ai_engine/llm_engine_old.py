@@ -1,5 +1,5 @@
 """
-LLM-powered coaching engine for strategic decisions - ENHANCED with live game context
+LLM-powered coaching engine for strategic decisions
 Uses Anthropic Claude (primary) and OpenAI GPT-4 (fallback)
 Target latency: <500ms
 Handles F2: Wave Management, F4: Objective Coaching
@@ -27,14 +27,13 @@ class LLMEngine:
         self.cache_max_size = 1000
         self.cache_ttl = 10  # Cache for 10 seconds
 
-    def _build_context(self, game_state: GameState, live_context: dict = None) -> str:
-        """Build structured context for LLM with live game data"""
+    def _build_context(self, game_state: GameState) -> str:
+        """Build structured context for LLM"""
         context = {
             "game_time": f"{game_state.game_time // 60}:{game_state.game_time % 60:02d}",
             "game_phase": game_state.game_phase,
             "player": {
                 "champion": game_state.player.champion_name,
-                "role": live_context.get('player', {}).get('role', 'unknown') if live_context else 'unknown',
                 "level": game_state.player.level,
                 "hp_percent": round(game_state.player.hp / game_state.player.hp_max * 100),
                 "mana_percent": round(game_state.player.mana / game_state.player.mana_max * 100) if game_state.player.mana_max > 0 else 100,
@@ -62,65 +61,36 @@ class LLMEngine:
                 "towers": f"{game_state.team_towers}:{game_state.enemy_towers}"
             }
         }
-
-        # Add strategic live game context
-        if live_context:
-            enemy_jungler = live_context.get('enemy_jungler', {})
-            enemy_laner = live_context.get('enemy_laner', {})
-
-            context["strategic_info"] = {
-                "enemy_jungler": enemy_jungler.get('champion', 'Unknown'),
-                "enemy_jungler_detected": enemy_jungler.get('exists', False),
-                "lane_opponent": enemy_laner.get('champion', 'Unknown'),
-                "lane_opponent_detected": enemy_laner.get('exists', False),
-            }
-
         return json.dumps(context, indent=2)
 
-    async def wave_management_coaching(self, game_state: GameState, live_context: dict = None) -> Optional[CoachingCommand]:
+    async def wave_management_coaching(self, game_state: GameState) -> Optional[CoachingCommand]:
         """
         F2: Wave Management
-        LLM-powered wave management coaching based on game context + live data
+        LLM-powered wave management coaching based on game context
         """
 
-        context_str = self._build_context(game_state, live_context)
-        context_dict = json.loads(context_str)
-
-        # Build strategic context string
-        strategic_note = ""
-        if live_context and 'strategic_info' in context_dict:
-            enemy_jungler = live_context.get('enemy_jungler', {}).get('champion', 'Unknown')
-            if enemy_jungler != 'Unknown':
-                strategic_note = f"\n\n🎯 STRATEGIC CONTEXT: Enemy jungler is {enemy_jungler}. Use this for pressure decisions."
+        context = self._build_context(game_state)
 
         prompt = f"""You are an expert League of Legends coach providing wave management advice.
 
 Game State:
-{context_str}{strategic_note}
+{context}
 
-Based on this game state, provide ONE concise wave management directive (max 70 characters).
+Based on this game state, provide ONE concise wave management directive (max 60 characters).
 
 Consider:
 - Wave position and minion counts
 - Upcoming objectives (dragon, baron spawns)
-- Player gold and recall timing (gold>800 for components)
+- Player gold and recall timing
 - Enemy visibility and jungle pressure
-- **IMPORTANT**: If enemy jungler location is known from strategic_info, factor this into safety
-- **DO NOT use "low HP" as recall reason UNLESS HP is critical (<30%)**
-
-**PRIORITY SYSTEM** (CommandManager filters low-priority spam):
-- priority="critical": Enemy jungler nearby, immediate danger (<30% HP with enemies), must-attend objectives (baron/elder/soul)
-- priority="high": Good recall timing (gold for key item component), teleport plays, dragon/herald
-- priority="medium": General wave management - ONLY suggest if meaningfully different from current state
 
 Response format (JSON):
-{{"action": "SLOW_PUSH|HARD_SHOVE|FREEZE|HOLD|RETREAT|RECALL", "reason": "brief reason", "message": "directive", "priority": "critical|high|medium"}}
+{{"action": "SLOW_PUSH|HARD_SHOVE|FREEZE|HOLD", "reason": "brief reason", "message": "directive to player"}}
 
 Examples:
-- {{"action": "RETREAT", "reason": "jungler spotted", "message": "RETREAT: Enemy Vi spotted nearby!", "priority": "critical"}}
-- {{"action": "RECALL", "reason": "2200g mythic", "message": "RECALL: You have gold for mythic", "priority": "high"}}
-- {{"action": "HARD_SHOVE", "reason": "dragon soon", "message": "SHOVE: Group dragon in 30s", "priority": "high"}}
-- {{"action": "FREEZE", "reason": "ahead in lane", "message": "FREEZE: Hold wave near tower", "priority": "medium"}}
+- {{"action": "HARD_SHOVE", "reason": "dragon spawns soon", "message": "HARD SHOVE: Clear wave fast, group dragon"}}
+- {{"action": "FREEZE", "reason": "ahead in lane", "message": "FREEZE: Hold wave near tower, zone enemy"}}
+- {{"action": "SLOW_PUSH", "reason": "recall timing", "message": "SLOW PUSH: Build wave, back after crash"}}
 """
 
         try:
@@ -150,11 +120,8 @@ Examples:
                 json_str = response_text[json_start:json_end]
                 data = json.loads(json_str)
 
-                # Get priority from LLM response or default to medium
-                llm_priority = data.get("priority", "medium")
-
                 return CoachingCommand(
-                    priority=llm_priority,
+                    priority="medium",
                     category="wave",
                     icon="🌊",
                     message=data.get("message", "Manage your wave"),
@@ -167,7 +134,7 @@ Examples:
 
         return None
 
-    async def objective_coaching(self, game_state: GameState, live_context: dict = None) -> Optional[CoachingCommand]:
+    async def objective_coaching(self, game_state: GameState) -> Optional[CoachingCommand]:
         """
         F4: Objective Coaching
         LLM-powered objective priority and setup coaching
@@ -180,12 +147,12 @@ Examples:
         if not ((dragon_time and dragon_time < 60) or (baron_time and baron_time < 90)):
             return None
 
-        context_str = self._build_context(game_state, live_context)
+        context = self._build_context(game_state)
 
         prompt = f"""You are an expert League of Legends coach providing objective macro coaching.
 
 Game State:
-{context_str}
+{context}
 
 An objective is spawning soon. Provide ONE concise objective directive (max 70 characters).
 

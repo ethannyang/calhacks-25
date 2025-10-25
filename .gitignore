@@ -66,3 +66,5 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+garen_*.png
+test_screenshot_*.png

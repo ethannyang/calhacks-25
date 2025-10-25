@@ -7,7 +7,7 @@ const { app, BrowserWindow, screen, ipcMain, globalShortcut } = require('electro
 const path = require('path');
 
 let mainWindow;
-let isClickThrough = true;
+let isClickThrough = false;  // Start with click-through disabled so window is more visible
 
 function createWindow() {
   // Get primary display dimensions
@@ -15,9 +15,9 @@ function createWindow() {
   const { width, height } = primaryDisplay.workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 150,
-    x: width - 420,  // Position in top-right
+    width: 450,
+    height: 200,
+    x: width - 470,  // Position in top-right
     y: 20,
     frame: false,
     transparent: true,
@@ -26,6 +26,8 @@ function createWindow() {
     resizable: true,
     visibleOnAllWorkspaces: true,  // Show on all spaces/desktops
     fullscreenable: false,  // Prevent fullscreen mode
+    hasShadow: true,  // Add shadow to make window more visible
+    opacity: 1.0,  // Full opacity initially
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
