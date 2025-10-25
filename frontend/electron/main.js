@@ -24,12 +24,27 @@ function createWindow() {
     alwaysOnTop: true,
     skipTaskbar: false,  // Show in taskbar for now (easier to close during dev)
     resizable: true,
+    visibleOnAllWorkspaces: true,  // Show on all spaces/desktops
+    fullscreenable: false,  // Prevent fullscreen mode
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
   });
+
+  // Critical: Set highest window level to show over fullscreen apps/games
+  // 'floating' is higher than 'screen-saver' and should work with games
+  mainWindow.setAlwaysOnTop(true, 'floating', 1);
+  mainWindow.setVisibleOnAllWorkspaces(true);
+
+  // Periodically ensure window stays on top (every 2 seconds)
+  setInterval(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setAlwaysOnTop(true, 'floating', 1);
+      mainWindow.showInactive(); // Show without stealing focus
+    }
+  }, 2000);
 
   // Set click-through by default (can be toggled)
   if (isClickThrough) {

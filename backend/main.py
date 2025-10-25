@@ -10,17 +10,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 import sys
 
+from game_loop import GameLoop
+from src.models.game_state import CoachingCommand
+
 # Configure logger
 logger.remove()
 logger.add(sys.stderr, level="INFO")
+
+# Global game loop instance
+game_loop: GameLoop = None
+game_loop_task: asyncio.Task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
+    global game_loop, game_loop_task
+
     logger.info("Starting LoL AI Coaching Backend...")
+
+    # Start game loop in background
+    game_loop = GameLoop()
+    game_loop_task = asyncio.create_task(game_loop.run())
+    logger.info("Game loop started in background")
+
     yield
+
+    # Stop game loop
     logger.info("Shutting down LoL AI Coaching Backend...")
+    if game_loop:
+        game_loop.stop()
+    if game_loop_task:
+        await game_loop_task
 
 
 app = FastAPI(
@@ -77,6 +98,48 @@ async def health_check():
     }
 
 
+@app.get("/test-command")
+async def test_command():
+    """Send a test coaching command to verify overlay is working"""
+    import time
+    test_cmd = CoachingCommand(
+        priority="high",
+        category="safety",
+        icon="⚠️",
+        message="TEST: Overlay is working! You should see this message.",
+        duration=10,
+        timestamp=time.time()
+    )
+    await manager.broadcast({
+        "type": "command",
+        "data": {
+            "priority": test_cmd.priority,
+            "category": test_cmd.category,
+            "icon": test_cmd.icon,
+            "message": test_cmd.message,
+            "duration": test_cmd.duration,
+            "timestamp": test_cmd.timestamp
+        }
+    })
+    return {"status": "test command sent"}
+
+
+async def broadcast_command(command: CoachingCommand):
+    """Callback for game loop to broadcast commands to all connected clients"""
+    message = {
+        "type": "command",
+        "data": {
+            "priority": command.priority,
+            "category": command.category,
+            "icon": command.icon,
+            "message": command.message,
+            "duration": command.duration,
+            "timestamp": command.timestamp
+        }
+    }
+    await manager.broadcast(message)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -84,7 +147,14 @@ async def websocket_endpoint(websocket: WebSocket):
     Client receives: {"type": "command", "data": {...}}
     Client sends: {"type": "config", "data": {...}}
     """
+    global game_loop
+
     await manager.connect(websocket)
+
+    # Connect game loop to broadcast commands
+    if game_loop and not game_loop.on_command:
+        game_loop.set_command_callback(broadcast_command)
+        logger.info("Game loop connected to WebSocket broadcast")
 
     try:
         while True:
