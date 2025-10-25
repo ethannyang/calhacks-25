@@ -105,32 +105,35 @@ function registerShortcuts() {
   });
 }
 
-// IPC handlers
-ipcMain.handle('get-display-size', () => {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  return primaryDisplay.workAreaSize;
-});
+// IPC handlers - must be set up before app.whenReady()
+function setupIPCHandlers() {
+  ipcMain.handle('get-display-size', () => {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    return primaryDisplay.workAreaSize;
+  });
 
-ipcMain.handle('set-window-position', (event, x, y) => {
-  if (mainWindow) {
-    mainWindow.setPosition(x, y);
-  }
-});
+  ipcMain.handle('set-window-position', (event, x, y) => {
+    if (mainWindow) {
+      mainWindow.setPosition(x, y);
+    }
+  });
 
-ipcMain.handle('set-window-size', (event, width, height) => {
-  if (mainWindow) {
-    mainWindow.setSize(width, height);
-  }
-});
+  ipcMain.handle('set-window-size', (event, width, height) => {
+    if (mainWindow) {
+      mainWindow.setSize(width, height);
+    }
+  });
 
-ipcMain.handle('set-opacity', (event, opacity) => {
-  if (mainWindow) {
-    mainWindow.setOpacity(opacity);
-  }
-});
+  ipcMain.handle('set-opacity', (event, opacity) => {
+    if (mainWindow) {
+      mainWindow.setOpacity(opacity);
+    }
+  });
+}
 
 // App lifecycle
 app.whenReady().then(() => {
+  setupIPCHandlers();
   createWindow();
 
   app.on('activate', () => {
