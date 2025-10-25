@@ -34,14 +34,24 @@ function createWindow() {
   });
 
   // Critical: Set highest window level to show over fullscreen apps/games
-  // 'floating' is higher than 'screen-saver' and should work with games
-  mainWindow.setAlwaysOnTop(true, 'floating', 1);
+  // Try 'screen-saver' first (highest level), fallback to 'pop-up-menu' or 'floating'
+  // Note: For true fullscreen games, this may not work - game needs to be in Borderless mode
+  try {
+    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+  } catch (e) {
+    console.warn('Could not set screen-saver level, trying pop-up-menu:', e);
+    mainWindow.setAlwaysOnTop(true, 'pop-up-menu', 1);
+  }
   mainWindow.setVisibleOnAllWorkspaces(true);
 
   // Periodically ensure window stays on top (every 2 seconds)
   setInterval(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setAlwaysOnTop(true, 'floating', 1);
+      try {
+        mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+      } catch (e) {
+        mainWindow.setAlwaysOnTop(true, 'pop-up-menu', 1);
+      }
       mainWindow.showInactive(); // Show without stealing focus
     }
   }, 2000);
