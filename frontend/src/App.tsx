@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import CommandCard from './components/CommandCard';
 import DirectiveCard from './components/DirectiveCard';
 import ConnectionStatus from './components/ConnectionStatus';
+import VoicePrompt from './components/VoicePrompt';
 import { useCoachingStore, CoachingCommand, DirectiveV1 } from './store/coachingStore';
 import { connectWebSocket } from './services/websocket';
 import { useAutoResize } from './hooks/useAutoResize';
@@ -59,11 +60,14 @@ function App() {
         </div>
       )}
 
+      {/* Voice prompt component */}
+      <VoicePrompt />
+
       {/* Overlay status indicator */}
       {!currentCommand && (
         <div className="text-center">
           <div className="text-white/80 text-lg font-bold mb-2">
-            LoL AI Coaching Overlay
+            SOUMA
           </div>
           <div className="text-white/60 text-sm font-mono bg-black/30 px-3 py-2 rounded">
             {isConnected ? 'Connected - Waiting for commands' : 'Connecting...'}

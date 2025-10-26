@@ -221,21 +221,42 @@ class GameMonitor:
                 logger.info(f"[RULE] Generated command: [{rule_command.priority}] {rule_command.message}")
                 return rule_command
 
-            # Priority 2: Try LLM engine for strategic coaching (wave management, objectives)
+            # Priority 2: Try LLM engine for strategic coaching with variety
             if self.llm_engine:
-                # Try wave management coaching
-                wave_directive = await self.llm_engine.wave_management_coaching(game_state)
-                if wave_directive:
-                    self.last_command = wave_directive
-                    logger.info(f"[LLM] Wave directive: [{wave_directive.priority}] {wave_directive.primary.text}")
-                    return wave_directive
+                # Rotate through different directive types to avoid repetition
+                # Use directive_counter to cycle through different types
+                if not hasattr(self, 'directive_counter'):
+                    self.directive_counter = 0
 
-                # Try objective coaching
-                objective_directive = await self.llm_engine.objective_coaching(game_state)
-                if objective_directive:
-                    self.last_command = objective_directive
-                    logger.info(f"[LLM] Objective directive: [{objective_directive.priority}] {objective_directive.primary.text}")
-                    return objective_directive
+                # List of all directive methods
+                directive_methods = [
+                    ('wave', self.llm_engine.wave_management_coaching),
+                    ('objective', self.llm_engine.objective_coaching),
+                    ('team_fight', self.llm_engine.team_fighting_coaching),
+                    ('vision', self.llm_engine.vision_control_coaching),
+                    ('items', self.llm_engine.itemization_coaching),
+                    ('backing', self.llm_engine.backing_timing_coaching)
+                ]
+
+                # Try each directive type in rotation, starting from current counter
+                for i in range(len(directive_methods)):
+                    idx = (self.directive_counter + i) % len(directive_methods)
+                    name, method = directive_methods[idx]
+
+                    try:
+                        directive = await method(game_state)
+                        if directive:
+                            self.last_command = directive
+                            logger.info(f"[LLM-{name.upper()}] Generated: [{directive.priority}] {directive.primary.text}")
+                            # Move counter to next type for next call
+                            self.directive_counter = (idx + 1) % len(directive_methods)
+                            return directive
+                    except Exception as e:
+                        logger.debug(f"Directive {name} failed: {e}")
+                        continue
+
+                # If no directive was generated, increment counter for next attempt
+                self.directive_counter = (self.directive_counter + 1) % len(directive_methods)
 
             return None
 
