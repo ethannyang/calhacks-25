@@ -10,14 +10,19 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: transparent;
+  /* Semi-transparent dark background for better visibility */
+  background: rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  /* Make sure the window is draggable where there's no content */
+  -webkit-app-region: drag;
 }
 
 #root {
   width: 100vw;
   height: 100vh;
   background: transparent;
+  /* Make interactive elements non-draggable */
+  -webkit-app-region: no-drag;
 }
 
 * {

@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowSize: (width, height) => ipcRenderer.invoke('set-window-size', width, height),
   setOpacity: (opacity) => ipcRenderer.invoke('set-opacity', opacity),
 
+  // Window visibility control
+  forceShow: () => ipcRenderer.invoke('force-show'),
+  isVisible: () => ipcRenderer.invoke('is-visible'),
+  toggleVisibility: () => ipcRenderer.invoke('toggle-visibility'),
+
   // Auto-resize functionality
   setAutoResize: (enabled) => ipcRenderer.invoke('set-auto-resize', enabled),
   setPreferredSize: (width, height) => ipcRenderer.invoke('preferred-size', { width, height }),

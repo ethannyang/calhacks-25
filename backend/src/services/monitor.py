@@ -6,6 +6,7 @@ Captures screen, extracts game data, and generates coaching commands
 import asyncio
 import time
 import os
+import random
 from typing import Optional, Dict, Any, Union
 from loguru import logger
 import numpy as np
@@ -158,14 +159,35 @@ class GameMonitor:
                 assists=0
             )
 
-            # Build objectives (placeholder data)
-            objectives = ObjectiveState()
+            # Build objectives with mock data for testing
+            # In late game (65+ min), objectives spawn frequently
+            objectives = ObjectiveState(
+                dragon_spawn_time=45 if game_time % 360 < 45 else None,  # Dragon every 6 min
+                baron_spawn_time=30 if game_time > 1200 and game_time % 420 < 30 else None,  # Baron every 7 min after 20 min
+                herald_spawn_time=None,  # Herald doesn't spawn after 20 min
+                dragon_type="elder" if game_time > 2100 else "cloud",  # Elder after 35 min
+                dragon_stacks={"cloud": 2, "mountain": 1, "infernal": 1, "ocean": 0}
+            )
 
-            # Build wave state (placeholder)
-            wave = WaveState()
+            # Build wave state with mock position data
+            wave_positions = ["ally_tower", "mid", "enemy_tower"]
+            wave = WaveState(
+                wave_position=wave_positions[min(2, max(0, int((hp / hp_max) * 3)))],  # Position based on HP
+                allied_minions=random.randint(3, 6),
+                enemy_minions=random.randint(2, 7),
+                cannon_wave=game_time % 90 < 30  # Cannon wave every 90 seconds
+            )
 
-            # Build vision state (placeholder)
-            vision = VisionState()
+            # Build vision state with mock enemy data
+            # More enemies missing = more danger
+            total_enemies = 5
+            enemies_visible = 2 if hp / hp_max < 0.3 else random.randint(0, 3)
+            vision = VisionState(
+                enemy_visible_count=enemies_visible,
+                enemy_missing_count=total_enemies - enemies_visible,
+                ward_count=random.randint(0, 2),
+                control_ward_count=0 if game_time < 600 else 1
+            )
 
             # Create game state
             game_state = GameState(

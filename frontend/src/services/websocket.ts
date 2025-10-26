@@ -2,7 +2,7 @@
  * WebSocket service for real-time coaching commands
  */
 
-import { useCoachingStore, CoachingCommand, DirectiveV1, Command } from '../store/coachingStore';
+import { useCoachingStore, CoachingCommand, DirectiveV1 } from '../store/coachingStore';
 
 let ws: WebSocket | null = null;
 let reconnectTimeout: NodeJS.Timeout | null = null;

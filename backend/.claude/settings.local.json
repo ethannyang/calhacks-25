@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/milky/Downloads/CalHacks/calhacks-25/frontend/electron/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

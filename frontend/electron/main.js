@@ -11,12 +11,12 @@ const { app, BrowserWindow, screen, ipcMain, globalShortcut } = require('electro
 const path = require('path');
 
 let mainWindow;
-let isClickThrough = true;  // Always true for overlay mode
+let isClickThrough = false;  // Start with click-through disabled so user can see the overlay
 
 // ---- Auto-resize config ----
 let autoResizeEnabled = true;         // can be toggled via IPC
-const MIN_WIDTH = 900;
-const MIN_HEIGHT = 360;
+const MIN_WIDTH = 300;        // Smaller minimum for better flexibility
+const MIN_HEIGHT = 120;       // Smaller minimum height
 // main.js
 const START_WIDTH = 500;    // smaller width for overlay
 const START_HEIGHT = 190;   // smaller height for overlay
@@ -56,9 +56,10 @@ function createWindow() {
     resizable: true,                  // allow manual resize (programmatic + OS edges if click-through disabled)
     useContentSize: true,             // sizing refers to webContents size
     hasShadow: false,                 // remove window shadow for better overlay appearance
-    focusable: false,                 // prevent the window from taking focus
-    type: 'panel',                    // makes it a true overlay window
+    focusable: true,                  // Allow focus so the window can be interacted with
+    // Remove type: 'panel' as it causes issues on Windows
     titleBarStyle: 'hidden',          // removes any remaining window chrome
+    backgroundColor: '#00000000',     // Fully transparent background
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -69,12 +70,32 @@ function createWindow() {
   // Minimum size safeguards
   mainWindow.setMinimumSize(MIN_WIDTH, MIN_HEIGHT);
 
+  // Set window level to stay on top of fullscreen apps (including games)
+  if (process.platform === 'win32') {
+    // On Windows, we need to set the window to stay on top aggressively
+    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+    // Ensure window stays on top even when fullscreen apps are running
+    setInterval(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+      }
+    }, 1000);
+  } else {
+    // For macOS and Linux
+    mainWindow.setAlwaysOnTop(true, 'floating', 1);
+    mainWindow.setVisibleOnAllWorkspaces(true);
+  }
+
   // Optional: zoom up a bit on HiDPI if desired
   // mainWindow.webContents.setZoomFactor(1.1);
 
-  // Click-through by default (toggle with shortcut)
+  // Click-through configuration (starts disabled so overlay is visible)
   if (isClickThrough) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  } else {
+    mainWindow.setIgnoreMouseEvents(false);
   }
 
   // Load the app
@@ -84,6 +105,17 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Ensure window is visible after loading
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.focus();
+    // Flash the window briefly to indicate it's ready
+    mainWindow.flashFrame(true);
+    setTimeout(() => {
+      if (mainWindow) mainWindow.flashFrame(false);
+    }, 1000);
+  });
 
   // Keep window on-screen if display metrics change (e.g., user changes resolution)
   screen.on('display-metrics-changed', () => {
@@ -132,6 +164,22 @@ function registerShortcuts() {
     mainWindow.setIgnoreMouseEvents(isClickThrough, { forward: true });
     mainWindow.webContents.send('click-through-toggled', isClickThrough);
     console.log(`Click-through: ${isClickThrough ? 'enabled' : 'disabled'}`);
+
+    // Flash frame to indicate state change
+    mainWindow.flashFrame(true);
+    setTimeout(() => mainWindow.flashFrame(false), 500);
+  });
+
+  // Toggle visibility: Ctrl+Shift+V (Show/Hide overlay)
+  globalShortcut.register('CommandOrControl+Shift+V', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    }
   });
 
   // Toggle DevTools: Ctrl+Shift+I
@@ -152,6 +200,27 @@ function registerShortcuts() {
     const growH = h + 80;
     const [x, y] = mainWindow.getPosition();
     const bounds = clampToWorkArea(x, y, growW, growH);
+    mainWindow.setBounds(bounds);
+  });
+
+  // Hot-shrink size: Ctrl+Alt+-  (incrementally make window smaller)
+  globalShortcut.register('CommandOrControl+Alt+Minus', () => {
+    if (!mainWindow) return;
+    const [w, h] = mainWindow.getSize();
+    const shrinkW = Math.max(MIN_WIDTH, w - 160);
+    const shrinkH = Math.max(MIN_HEIGHT, h - 80);
+    const [x, y] = mainWindow.getPosition();
+    const bounds = clampToWorkArea(x, y, shrinkW, shrinkH);
+    mainWindow.setBounds(bounds);
+  });
+
+  // Reset position: Ctrl+Shift+Home (move to top-right corner)
+  globalShortcut.register('CommandOrControl+Shift+Home', () => {
+    if (!mainWindow) return;
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: waWidth } = primaryDisplay.workAreaSize;
+    const [w, h] = mainWindow.getSize();
+    const bounds = clampToWorkArea(waWidth - (w + 20), 20, w, h);
     mainWindow.setBounds(bounds);
   });
 }
@@ -196,6 +265,37 @@ ipcMain.handle('set-opacity', (event, opacity) => {
   if (mainWindow) {
     const clamped = Math.min(1, Math.max(0.1, opacity));
     mainWindow.setOpacity(clamped);
+  }
+});
+
+// Force show the window and bring it to top
+ipcMain.handle('force-show', () => {
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    mainWindow.flashFrame(true);
+    setTimeout(() => {
+      if (mainWindow) mainWindow.flashFrame(false);
+    }, 1000);
+  }
+});
+
+// Get window visibility state
+ipcMain.handle('is-visible', () => {
+  return mainWindow ? mainWindow.isVisible() : false;
+});
+
+// Toggle window visibility
+ipcMain.handle('toggle-visibility', () => {
+  if (!mainWindow) return false;
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+    return false;
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+    return true;
   }
 });
 

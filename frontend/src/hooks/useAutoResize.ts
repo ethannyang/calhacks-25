@@ -3,15 +3,6 @@
  */
 import { useEffect, useRef } from 'react';
 
-declare global {
-  interface Window {
-    electron?: {
-      setPreferredSize: (width: number, height: number) => Promise<any>;
-      setAutoResize: (enabled: boolean) => Promise<any>;
-    };
-  }
-}
-
 export function useAutoResize(enabled: boolean = true) {
   const contentRef = useRef<HTMLDivElement>(null);
   const lastSizeRef = useRef({ width: 0, height: 0 });
@@ -47,7 +38,7 @@ export function useAutoResize(enabled: boolean = true) {
       if (Math.abs(windowWidth - lastSize.width) > 10 ||
           Math.abs(windowHeight - lastSize.height) > 10) {
 
-        window.electron.setPreferredSize(windowWidth, windowHeight);
+        window.electron?.setPreferredSize(windowWidth, windowHeight);
         lastSizeRef.current = { width: windowWidth, height: windowHeight };
       }
     };
