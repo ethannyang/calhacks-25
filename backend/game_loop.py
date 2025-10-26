@@ -21,6 +21,7 @@ from src.ai_engine.llm_engine import LLMEngine
 from src.ai_engine.command_manager import CommandManager
 from src.riot_api.client import RiotAPIClient
 from src.riot_api.live_game_manager import LiveGameManager
+from src.combat_vision.combat_coach_module import CombatCoachModule
 
 # Load environment variables
 load_dotenv()
@@ -71,11 +72,27 @@ class GameLoop:
         self.live_api_interval = 10.0
         self.last_live_api_time = 0
 
+        # Initialize Combat Coach Module for Darius vs Garen
+        audio_device = os.getenv("AUDIO_DEVICE_INDEX")
+        if audio_device:
+            try:
+                audio_device_index = int(audio_device)
+                self.combat_coach = CombatCoachModule(audio_device_index=audio_device_index)
+                logger.info(f"Combat coach module enabled (audio device: {audio_device_index})")
+            except ValueError:
+                logger.warning("Invalid AUDIO_DEVICE_INDEX, combat coaching disabled")
+                self.combat_coach = None
+        else:
+            logger.info("AUDIO_DEVICE_INDEX not set, combat coaching disabled")
+            logger.info("To enable combat coaching: add AUDIO_DEVICE_INDEX to .env")
+            self.combat_coach = None
+
         # State
         self.running = False
         self.game_detected = False
         self.frame_count = 0
         self.live_game_initialized = False
+        self.combat_coach_initialized = False
 
         # WebSocket callback (set externally)
         self.on_command = None
@@ -220,7 +237,12 @@ class GameLoop:
             # 6. Run rule engine (fast, always runs)
             rule_command = self.rule_engine.process(game_state)
 
-            # 7. Run LLM engine (slower, periodic) with live game context
+            # 7. Run combat coach (audio-based ability detection + Darius vs Garen coaching)
+            combat_command = None
+            if self.combat_coach and self.combat_coach.is_active():
+                combat_command = self.combat_coach.get_combat_command(game_state)
+
+            # 8. Run LLM engine (slower, periodic) with live game context
             llm_command = None
             if self.llm_engine and time.time() - self.last_llm_time >= self.llm_interval:
                 self.last_llm_time = time.time()
@@ -233,8 +255,9 @@ class GameLoop:
                 # Try wave management coaching with enhanced context
                 llm_command = await self.llm_engine.wave_management_coaching(game_state, live_ctx)
 
-            # 8. Determine which command to use (priority: recall > LLM > rule)
-            proposed_command = recall_command if recall_command else (llm_command if llm_command else rule_command)
+            # 9. Determine which command to use (priority: combat > recall > LLM > rule)
+            # Combat commands are highest priority because they're real-time fight-or-flight decisions
+            proposed_command = combat_command if combat_command else (recall_command if recall_command else (llm_command if llm_command else rule_command))
 
             # 8. Use CommandManager to decide if we should issue this command
             if proposed_command:
@@ -268,6 +291,20 @@ class GameLoop:
             except Exception as e:
                 logger.error(f"Failed to initialize LiveGameManager: {e}")
                 self.live_game_mgr = None
+
+        # Initialize Combat Coach Module if available
+        if self.combat_coach and not self.combat_coach_initialized:
+            try:
+                success = await self.combat_coach.start()
+                if success:
+                    self.combat_coach_initialized = True
+                    logger.info("✅ Combat coach module started (audio detection active)")
+                else:
+                    logger.warning("❌ Combat coach failed to start")
+                    self.combat_coach = None
+            except Exception as e:
+                logger.error(f"Failed to start combat coach: {e}")
+                self.combat_coach = None
 
         try:
             while self.running:
@@ -304,6 +341,8 @@ class GameLoop:
     def stop(self):
         """Stop the game loop"""
         self.running = False
+        if self.combat_coach:
+            self.combat_coach.stop()
 
 
 async def main():
