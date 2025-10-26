@@ -85,8 +85,11 @@ async def test_garen_detection():
                     ability_name = "R_DEMACIAN_JUSTICE"
 
                 filename = f"garen_{detection_count}_{ability_name}_{int(time.time())}.png"
-                cv2.imwrite(filename, frame)
-                print(f"\n🎯 DETECTED! Saved: {filename}")
+                success = cv2.imwrite(filename, frame)
+                if success:
+                    print(f"\n🎯 DETECTED! Saved: {filename}")
+                else:
+                    print(f"\n❌ DETECTED but FAILED to save: {filename} (frame shape: {frame.shape if frame is not None else 'None'})")
 
             # Run at ~30 FPS
             await asyncio.sleep(0.033)

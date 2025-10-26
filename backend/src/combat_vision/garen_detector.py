@@ -31,14 +31,44 @@ class GarenAbilityDetector:
         self.garen_spinning = False
         self.spin_start_time = 0
 
+        # Temporal filtering - 3-frame sliding window
+        self.q_detection_history = []
+        self.w_detection_history = []
+        self.e_detection_history = []
+
+        # Gamma correction value
+        self.gamma = 1.3
+
+        # Build gamma lookup table for performance
+        inv_gamma = 1.0 / self.gamma
+        self.gamma_table = np.array([((i / 255.0) ** inv_gamma) * 255
+                                     for i in range(256)]).astype("uint8")
+
+    def _apply_gamma_correction(self, frame: np.ndarray) -> np.ndarray:
+        """Apply gamma correction for better color detection"""
+        return cv2.LUT(frame, self.gamma_table)
+
+    def _temporal_filter(self, history: list, current_detection: bool, window_size: int = 3) -> bool:
+        """Apply temporal filtering with sliding window"""
+        history.append(current_detection)
+        if len(history) > window_size:
+            history.pop(0)
+
+        # Require at least 2 out of 3 frames to confirm detection
+        if len(history) >= 2:
+            return sum(history) >= 2
+        return False
+
     def detect_garen_q(self, frame: np.ndarray, garen_position: Optional[Tuple[int, int]] = None) -> bool:
         """
         Detect Garen Q (Decisive Strike)
-        Visual: Sword glows white/gold above Garen's head
+        Visual: Sword glows golden-yellow above Garen's head
 
-        Detection method:
-        1. Look for bright white/gold glow in champion area
-        2. Detect increased brightness above champion model
+        Specifications:
+        - HSV Range: H(35-55), S(0.6-1.0), V(0.8-1.0)
+        - Detection Region: 60×120px sword region above champion
+        - Threshold: ≥20% gold pixels
+        - Temporal: 3-frame sliding window
         """
         if garen_position is None:
             # If we don't know Garen's position, scan center of screen
@@ -47,42 +77,49 @@ class GarenAbilityDetector:
 
         x, y = garen_position
 
-        # Define ROI around Garen (assume he's in this area)
-        roi_size = 150
-        x1, y1 = max(0, x - roi_size//2), max(0, y - roi_size)
-        x2, y2 = min(frame.shape[1], x + roi_size//2), min(frame.shape[0], y + roi_size//2)
+        # Apply gamma correction
+        frame_corrected = self._apply_gamma_correction(frame)
 
-        roi = frame[y1:y2, x1:x2]
+        # Define ROI: 60×120px sword region above champion
+        roi_width, roi_height = 60, 120
+        x1 = max(0, x - roi_width // 2)
+        y1 = max(0, y - roi_height)  # Above champion
+        x2 = min(frame.shape[1], x + roi_width // 2)
+        y2 = min(frame.shape[0], y)
+
+        roi = frame_corrected[y1:y2, x1:x2]
         if roi.size == 0:
             return False
 
-        # Convert to HSV to detect bright white/gold glow
+        # Convert to HSV
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        # White glow (high value, low saturation)
-        lower_white = np.array([0, 0, 200])
-        upper_white = np.array([180, 50, 255])
-        white_mask = cv2.inRange(hsv, lower_white, upper_white)
-
-        # Gold glow (yellow hue)
-        lower_gold = np.array([20, 100, 200])
-        upper_gold = np.array([40, 255, 255])
+        # Gold glow: H(35-55), S(153-255), V(204-255)
+        # S: 0.6 * 255 = 153, V: 0.8 * 255 = 204
+        lower_gold = np.array([35, 153, 204])
+        upper_gold = np.array([55, 255, 255])
         gold_mask = cv2.inRange(hsv, lower_gold, upper_gold)
 
-        # Combine masks
-        combined_mask = cv2.bitwise_or(white_mask, gold_mask)
+        # Apply binary dilation (3×3 kernel)
+        kernel = np.ones((3, 3), np.uint8)
+        gold_mask = cv2.dilate(gold_mask, kernel, iterations=1)
 
-        # Count bright pixels
-        bright_pixels = np.sum(combined_mask > 0)
+        # Count gold pixels
+        gold_pixels = np.sum(gold_mask > 0)
         total_pixels = roi.shape[0] * roi.shape[1]
-        bright_ratio = bright_pixels / total_pixels
+        gold_ratio = gold_pixels / total_pixels
 
-        # If >3% of ROI is bright white/gold, Q is active
-        if bright_ratio > 0.03:
+        # Threshold: ≥20% gold pixels
+        current_detection = gold_ratio >= 0.20
+
+        # Apply temporal filtering
+        filtered_detection = self._temporal_filter(self.q_detection_history, current_detection)
+
+        if filtered_detection:
             now = time.time()
-            if now - self.last_q_time > 2.0:  # Debounce (don't spam detections)
+            if now - self.last_q_time > 2.0:  # Debounce
                 self.last_q_time = now
-                logger.info("🗡️  GAREN Q DETECTED - Sword glow visible")
+                logger.info(f"🗡️  GAREN Q DETECTED - Sword glow visible ({gold_ratio*100:.1f}% gold pixels)")
                 return True
 
         return False
@@ -92,9 +129,11 @@ class GarenAbilityDetector:
         Detect Garen W (Courage)
         Visual: Blue shield appears around Garen
 
-        Detection method:
-        1. Look for blue circular glow around champion
-        2. Detect shield VFX (blue-ish particles)
+        Specifications:
+        - HSV Range: H(190-220), S(0.5-1.0), V(0.6-1.0)
+        - Detection Region: 150-200px circular region around champion
+        - Threshold: ≥25% blue pixels
+        - Duration: 0.2-0.4s temporal check
         """
         if garen_position is None:
             height, width = frame.shape[:2]
@@ -102,34 +141,47 @@ class GarenAbilityDetector:
 
         x, y = garen_position
 
-        # ROI around Garen
-        roi_size = 200
-        x1, y1 = max(0, x - roi_size//2), max(0, y - roi_size)
-        x2, y2 = min(frame.shape[1], x + roi_size//2), min(frame.shape[0], y + roi_size//2)
+        # Apply gamma correction
+        frame_corrected = self._apply_gamma_correction(frame)
 
-        roi = frame[y1:y2, x1:x2]
+        # ROI: 175px radius (middle of 150-200px range) circular region
+        roi_size = 175
+        x1, y1 = max(0, x - roi_size), max(0, y - roi_size)
+        x2, y2 = min(frame.shape[1], x + roi_size), min(frame.shape[0], y + roi_size)
+
+        roi = frame_corrected[y1:y2, x1:x2]
         if roi.size == 0:
             return False
 
         # Convert to HSV
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        # Blue shield glow
-        lower_blue = np.array([90, 50, 100])
-        upper_blue = np.array([130, 255, 255])
+        # Blue shield: H(190-220), S(128-255), V(153-255)
+        # S: 0.5 * 255 = 128, V: 0.6 * 255 = 153
+        lower_blue = np.array([190, 128, 153])
+        upper_blue = np.array([220, 255, 255])
         blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+
+        # Apply binary dilation (3×3 kernel)
+        kernel = np.ones((3, 3), np.uint8)
+        blue_mask = cv2.dilate(blue_mask, kernel, iterations=1)
 
         # Count blue pixels
         blue_pixels = np.sum(blue_mask > 0)
         total_pixels = roi.shape[0] * roi.shape[1]
         blue_ratio = blue_pixels / total_pixels
 
-        # If >2% of ROI is blue, W is active
-        if blue_ratio > 0.02:
+        # Threshold: ≥25% blue pixels
+        current_detection = blue_ratio >= 0.25
+
+        # Apply temporal filtering
+        filtered_detection = self._temporal_filter(self.w_detection_history, current_detection)
+
+        if filtered_detection:
             now = time.time()
             if now - self.last_w_time > 2.0:
                 self.last_w_time = now
-                logger.info("🛡️  GAREN W DETECTED - Shield active")
+                logger.info(f"🛡️  GAREN W DETECTED - Shield active ({blue_ratio*100:.1f}% blue pixels)")
                 return True
 
         return False
@@ -137,12 +189,13 @@ class GarenAbilityDetector:
     def detect_garen_e(self, frame: np.ndarray, garen_position: Optional[Tuple[int, int]] = None) -> Dict[str, any]:
         """
         Detect Garen E (Judgment)
-        Visual: Full body spin animation with sword trails
+        Visual: Full body spin animation with blue-white sword trails
 
-        Detection method:
-        1. Look for circular motion blur
-        2. Detect rapid color changes (spinning creates blur)
-        3. Track duration of spin (lasts 3 seconds)
+        Specifications:
+        - HSV Range: H(200-240), S(0.3-0.9), V(0.8-1.0)
+        - Detection Region: 250-300px circular region around champion
+        - Threshold: ≥30% blue-white streak pixels
+        - Temporal: 0.3s duration confirmation via 3-frame window
 
         Returns: {
             'spinning': bool,
@@ -155,33 +208,41 @@ class GarenAbilityDetector:
 
         x, y = garen_position
 
-        # ROI around Garen
-        roi_size = 200
-        x1, y1 = max(0, x - roi_size//2), max(0, y - roi_size)
-        x2, y2 = min(frame.shape[1], x + roi_size//2), min(frame.shape[0], y + roi_size//2)
+        # Apply gamma correction
+        frame_corrected = self._apply_gamma_correction(frame)
 
-        roi = frame[y1:y2, x1:x2]
+        # ROI: 275px radius (middle of 250-300px range) circular region
+        roi_size = 275
+        x1, y1 = max(0, x - roi_size), max(0, y - roi_size)
+        x2, y2 = min(frame.shape[1], x + roi_size), min(frame.shape[0], y + roi_size)
+
+        roi = frame_corrected[y1:y2, x1:x2]
         if roi.size == 0:
             return {'spinning': False, 'duration': 0}
 
-        # Convert to grayscale
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-        # Calculate motion blur (spinning creates high frequency changes)
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-        variance = laplacian.var()
-
-        # Also check for sword trail colors (blue/white streaks)
+        # Convert to HSV
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        # Bright streaks (sword trails)
-        lower_bright = np.array([0, 0, 180])
-        upper_bright = np.array([180, 100, 255])
-        bright_mask = cv2.inRange(hsv, lower_bright, upper_bright)
-        bright_ratio = np.sum(bright_mask > 0) / (roi.shape[0] * roi.shape[1])
+        # Blue-white streaks: H(200-240), S(77-230), V(204-255)
+        # S: 0.3 * 255 = 77, 0.9 * 255 = 230, V: 0.8 * 255 = 204
+        lower_streaks = np.array([200, 77, 204])
+        upper_streaks = np.array([240, 230, 255])
+        streak_mask = cv2.inRange(hsv, lower_streaks, upper_streaks)
 
-        # If high variance AND bright streaks, Garen is spinning
-        is_spinning = variance > 500 and bright_ratio > 0.05
+        # Apply binary dilation (3×3 kernel)
+        kernel = np.ones((3, 3), np.uint8)
+        streak_mask = cv2.dilate(streak_mask, kernel, iterations=1)
+
+        # Count streak pixels
+        streak_pixels = np.sum(streak_mask > 0)
+        total_pixels = roi.shape[0] * roi.shape[1]
+        streak_ratio = streak_pixels / total_pixels
+
+        # Threshold: ≥30% streak pixels
+        current_detection = streak_ratio >= 0.30
+
+        # Apply temporal filtering
+        is_spinning = self._temporal_filter(self.e_detection_history, current_detection)
 
         now = time.time()
 
@@ -191,7 +252,7 @@ class GarenAbilityDetector:
                 self.garen_spinning = True
                 self.spin_start_time = now
                 self.last_e_time = now
-                logger.info("🌀 GAREN E DETECTED - SPINNING STARTED")
+                logger.info(f"🌀 GAREN E DETECTED - SPINNING STARTED ({streak_ratio*100:.1f}% streaks)")
 
             duration = now - self.spin_start_time
             return {'spinning': True, 'duration': duration}
