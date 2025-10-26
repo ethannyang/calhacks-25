@@ -113,5 +113,6 @@ class CoachingCommand(BaseModel):
     category: str = Field(..., description="safety, wave, trade, objective, rotation, recall, vision, position")
     icon: str = Field(..., description="Emoji icon")
     message: str = Field(..., description="Directive coaching message")
+    reason: str = Field(default="", description="Brief explanation why this command is given")
     duration: int = Field(default=5, description="Display duration in seconds")
     timestamp: float = Field(..., description="Unix timestamp")

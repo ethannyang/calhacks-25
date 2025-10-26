@@ -30,7 +30,7 @@ export default function CommandCard({ command }: CommandCardProps) {
     <div
       className={`${styleClass} ${textClass}
         rounded-lg border-2 shadow-2xl
-        px-4 py-3 min-w-[350px] max-w-[450px]
+        px-4 py-3 min-w-[350px] max-w-[500px]
         transition-all duration-300 ease-in-out`}
     >
       <div className="flex items-start gap-3">
@@ -39,9 +39,16 @@ export default function CommandCard({ command }: CommandCardProps) {
 
         {/* Message */}
         <div className="flex-1">
-          <p className="text-white font-bold text-base leading-tight tracking-wide">
+          <p className="text-white font-bold text-lg leading-tight tracking-wide">
             {command.message}
           </p>
+
+          {/* Reason - smaller text below */}
+          {(command as any).reason && (
+            <p className="text-white/80 text-xs mt-1 font-normal">
+              {(command as any).reason}
+            </p>
+          )}
 
           {/* Category badge */}
           <span className="inline-block mt-2 text-xs uppercase tracking-wider

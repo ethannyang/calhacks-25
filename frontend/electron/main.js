@@ -8,7 +8,7 @@ const path = require('path');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
 
 let mainWindow;
-let isClickThrough = false;  // Start with click-through disabled so window is more visible
+let isClickThrough = true;  // Enable click-through by default so it doesn't interfere with game
 let isVoiceInputActive = false;  // Track voice input state
 
 // Handle EPIPE errors gracefully to prevent app crashes
@@ -40,16 +40,16 @@ function createWindow() {
     height: 300,
     x: width - 520,  // Position in top-right (20px from right edge)
     y: 20,  // 20px from top
-    frame: true,  // Show frame for easier visibility
-    transparent: false,  // Disable transparency to make it more visible
+    frame: false,  // Frameless for cleaner overlay look
+    transparent: true,  // Enable transparency for translucent effect
     alwaysOnTop: true,
     skipTaskbar: false,  // Show in taskbar for now (easier to close during dev)
     resizable: true,
     visibleOnAllWorkspaces: true,  // Show on all spaces/desktops
     fullscreenable: false,  // Prevent fullscreen mode
     hasShadow: true,  // Add shadow to make window more visible
-    opacity: 1.0,  // Full opacity initially
-    backgroundColor: '#1a1a1a',  // Dark background so it's visible
+    opacity: 0.95,  // Slightly translucent (95% opacity)
+    backgroundColor: '#00000000',  // Transparent background
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -169,36 +169,37 @@ function setupIPCHandlers() {
 }
 
 function setupKeyboardMonitoring() {
-  // Monitor T key for push-to-talk
-  uIOhook.on('keydown', (e) => {
-    // T key
-    if (e.keycode === UiohookKey.T) {
-      if (!isVoiceInputActive) {
-        isVoiceInputActive = true;
-        if (mainWindow) {
-          mainWindow.webContents.send('voice-input-toggle', true);
-        }
-        safeLog('Voice input activated');
-      }
-    }
-  });
+  // Monitor ~ (Grave/Tilde) key for toggle voice input
+  // Key code 41 = ` key (the key above Tab, left of 1)
+  const GRAVE_KEY_CODE = 41;
+  let lastToggleTime = 0;
+  const DEBOUNCE_MS = 300; // Ignore events within 300ms of each other
 
-  uIOhook.on('keyup', (e) => {
-    // T key
-    if (e.keycode === UiohookKey.T) {
-      if (isVoiceInputActive) {
-        isVoiceInputActive = false;
-        if (mainWindow) {
-          mainWindow.webContents.send('voice-input-toggle', false);
-        }
-        safeLog('Voice input deactivated');
+  uIOhook.on('keydown', (e) => {
+    // ~ key (Grave accent) - using actual key code since UiohookKey.Grave is undefined
+    if (e.keycode === GRAVE_KEY_CODE) {
+      const now = Date.now();
+
+      // Ignore rapid repeated keydown events (key repeat while holding)
+      if (now - lastToggleTime < DEBOUNCE_MS) {
+        return;
       }
+      lastToggleTime = now;
+
+      // Toggle voice input on/off
+      isVoiceInputActive = !isVoiceInputActive;
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('voice-input-toggle', isVoiceInputActive);
+      }
+
+      safeLog(`Voice input ${isVoiceInputActive ? 'activated' : 'deactivated'} (toggle)`);
     }
   });
 
   // Start the keyboard hook
   uIOhook.start();
-  safeLog('Keyboard monitoring started (T key for voice input)');
+  safeLog('Keyboard monitoring started (` key = code 41 to toggle voice input)');
 }
 
 // Enable features for speech recognition

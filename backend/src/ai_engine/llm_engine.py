@@ -93,34 +93,38 @@ class LLMEngine:
             if enemy_jungler != 'Unknown':
                 strategic_note = f"\n\n🎯 STRATEGIC CONTEXT: Enemy jungler is {enemy_jungler}. Use this for pressure decisions."
 
-        prompt = f"""You are an expert League of Legends coach providing wave management advice.
+        prompt = f"""You are an expert League of Legends macro coach. Use the actual game data (HP, mana, gold, CS, game time, minimap) to give SPECIFIC, DATA-DRIVEN coaching.
 
 Game State:
 {context_str}{strategic_note}
 
-Based on this game state, provide ONE concise wave management directive (max 70 characters).
+**YOUR JOB**: Generate ONE specific coaching command with a data-driven reason.
 
-Consider:
-- Wave position and minion counts
-- Upcoming objectives (dragon, baron spawns)
-- Player gold and recall timing (gold>800 for components)
-- Enemy visibility and jungle pressure
-- **IMPORTANT**: If enemy jungler location is known from strategic_info, factor this into safety
-- **DO NOT use "low HP" as recall reason UNLESS HP is critical (<30%)**
+**COMMAND CATEGORIES** (be specific with actual numbers):
+1. **MAP AWARENESS**: "⚠️ 3 enemies missing — back off" / reason: "No vision, high gank risk"
+2. **ECONOMY**: "Recall for Phage (1100g)" / reason: "You have 1250g, item spike available"
+3. **CS TIMING**: "Don't miss cannon wave" / reason: "Cannon worth 60g+, big wave incoming"
+4. **RECALL TIMING**: "Push and recall" / reason: "Wave crashing, 1400g for component"
+5. **HEALTH/MANA**: "Play safe, low mana" / reason: "25% mana, can't trade or escape"
+6. **WAVE STATE**: "Freeze near tower" / reason: "Ahead in lane, deny enemy CS"
+7. **OBJECTIVE PREP**: "Shove for dragon (45s)" / reason: "Dragon spawns soon, need priority"
+8. **ITEM SPIKES**: "Back for mythic" / reason: "2800g for Trinity Force, power spike"
 
-**PRIORITY SYSTEM** (CommandManager filters low-priority spam):
-- priority="critical": Enemy jungler nearby, immediate danger (<30% HP with enemies), must-attend objectives (baron/elder/soul)
-- priority="high": Good recall timing (gold for key item component), teleport plays, dragon/herald
-- priority="medium": General wave management - ONLY suggest if meaningfully different from current state
+**MAKE IT SPECIFIC** using the actual data:
+- Use exact gold amounts from game state
+- Reference actual HP% and mana%
+- Mention CS count if relevant (e.g. "80 CS at 10min, keep farming")
+- Reference game time for objective timing
+- Use enemy missing count for danger level
 
 Response format (JSON):
-{{"action": "SLOW_PUSH|HARD_SHOVE|FREEZE|HOLD|RETREAT|RECALL", "reason": "brief reason", "message": "directive", "priority": "critical|high|medium"}}
+{{"action": "action_type", "reason": "why (data-driven)", "message": "what to do (specific)", "priority": "critical|high|medium"}}
 
-Examples:
-- {{"action": "RETREAT", "reason": "jungler spotted", "message": "RETREAT: Enemy Vi spotted nearby!", "priority": "critical"}}
-- {{"action": "RECALL", "reason": "2200g mythic", "message": "RECALL: You have gold for mythic", "priority": "high"}}
-- {{"action": "HARD_SHOVE", "reason": "dragon soon", "message": "SHOVE: Group dragon in 30s", "priority": "high"}}
-- {{"action": "FREEZE", "reason": "ahead in lane", "message": "FREEZE: Hold wave near tower", "priority": "medium"}}
+**Examples with real data**:
+- {{"action": "RECALL", "reason": "You have 1550g for Phage + boots", "message": "Recall for Phage (1100g)", "priority": "high"}}
+- {{"action": "CS_FOCUS", "reason": "Cannon wave + 3 melees = 150g", "message": "Don't miss cannon wave", "priority": "medium"}}
+- {{"action": "RETREAT", "reason": "35% HP, 3 enemies missing", "message": "Play safe — low HP, enemies missing", "priority": "critical"}}
+- {{"action": "FREEZE", "reason": "Lane ahead, wave near tower", "message": "Freeze wave — deny enemy CS", "priority": "medium"}}
 """
 
         try:
@@ -128,7 +132,7 @@ Examples:
             start_time = time.time()
 
             message = await self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-5-sonnet",
                 max_tokens=150,
                 temperature=0.3,
                 messages=[{
@@ -158,12 +162,50 @@ Examples:
                     category="wave",
                     icon="🌊",
                     message=data.get("message", "Manage your wave"),
+                    reason=data.get("reason", ""),
                     duration=6,
                     timestamp=time.time()
                 )
 
         except Exception as e:
             logger.error(f"LLM wave management failed: {e}")
+
+            # Fallback: Use game state to generate rule-based coaching
+            if game_state:
+                # Low HP warning
+                hp_percent = (game_state.player.hp / game_state.player.hp_max * 100) if game_state.player.hp_max > 0 else 100
+                if hp_percent < 40:
+                    return CoachingCommand(
+                        priority="high",
+                        category="safety",
+                        icon="❤️",
+                        message=f"Low HP ({int(hp_percent)}%) - play safe or recall",
+                        duration=6,
+                        timestamp=time.time()
+                    )
+
+                # Recall for gold
+                if game_state.player.gold >= 1300:
+                    return CoachingCommand(
+                        priority="medium",
+                        category="economy",
+                        icon="🛒",
+                        message=f"You have {game_state.player.gold}g - consider recalling for items",
+                        duration=6,
+                        timestamp=time.time()
+                    )
+
+                # CS reminder
+                expected_cs = (game_state.game_time // 60) * 7  # 7 CS per minute
+                if game_state.game_time > 180 and game_state.player.cs < expected_cs * 0.7:
+                    return CoachingCommand(
+                        priority="medium",
+                        category="farming",
+                        icon="🌾",
+                        message=f"CS at {game_state.player.cs} - focus on farming",
+                        duration=6,
+                        timestamp=time.time()
+                    )
 
         return None
 
@@ -208,7 +250,7 @@ Examples:
             start_time = time.time()
 
             message = await self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-5-sonnet",
                 max_tokens=150,
                 temperature=0.3,
                 messages=[{
@@ -241,4 +283,114 @@ Examples:
         except Exception as e:
             logger.error(f"LLM objective coaching failed: {e}")
 
+            # Fallback: Basic objective warnings
+            if dragon_time and dragon_time < 60:
+                return CoachingCommand(
+                    priority="high",
+                    category="objective",
+                    icon="🐉",
+                    message=f"Dragon spawns in {int(dragon_time)}s - get vision",
+                    duration=8,
+                    timestamp=time.time()
+                )
+            elif baron_time and baron_time < 90:
+                return CoachingCommand(
+                    priority="high",
+                    category="objective",
+                    icon="🏆",
+                    message=f"Baron spawns in {int(baron_time)}s - prepare",
+                    duration=8,
+                    timestamp=time.time()
+                )
+
         return None
+
+    async def answer_coaching_question(self, question: str, game_state: Optional[GameState] = None) -> Optional[CoachingCommand]:
+        """
+        Answer general coaching questions from voice input
+        Uses simple pattern matching for common questions
+        """
+
+        question_lower = question.lower()
+
+        # Pattern matching for common questions
+        if "recall" in question_lower or "back" in question_lower:
+            return CoachingCommand(
+                priority="high",
+                category="advice",
+                icon="🔄",
+                message="Recall after pushing wave or when low HP/mana",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "roam" in question_lower or "gank" in question_lower:
+            return CoachingCommand(
+                priority="medium",
+                category="advice",
+                icon="🗺️",
+                message="Push wave first, then roam - get prio before leaving",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "garen" in question_lower or "beat" in question_lower or "counter" in question_lower:
+            return CoachingCommand(
+                priority="medium",
+                category="advice",
+                icon="⚔️",
+                message="Kite Garen - avoid Q silence, punish E cooldown",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "build" in question_lower or "item" in question_lower:
+            return CoachingCommand(
+                priority="low",
+                category="advice",
+                icon="🛡️",
+                message="Rush Black Cleaver vs Garen for armor shred",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "farm" in question_lower or "cs" in question_lower:
+            return CoachingCommand(
+                priority="medium",
+                category="advice",
+                icon="🌾",
+                message="Focus on last-hitting - aim for 7+ CS per minute",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "trade" in question_lower or "fight" in question_lower:
+            return CoachingCommand(
+                priority="medium",
+                category="advice",
+                icon="⚔️",
+                message="Trade when enemy abilities are on cooldown",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        elif "ward" in question_lower or "vision" in question_lower:
+            return CoachingCommand(
+                priority="medium",
+                category="advice",
+                icon="👁️",
+                message="Ward river bush and tri-bush for jungle tracking",
+                duration=8,
+                timestamp=time.time()
+            )
+
+        else:
+            # Generic response for unrecognized questions
+            return CoachingCommand(
+                priority="low",
+                category="advice",
+                icon="💭",
+                message="Focus on CS, map awareness, and trading smart",
+                duration=6,
+                timestamp=time.time()
+            )

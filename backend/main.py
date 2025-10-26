@@ -4,6 +4,7 @@ FastAPI server with WebSocket support for real-time coaching commands
 """
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -197,6 +198,86 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({
                         "type": "error",
                         "message": "Combat coach not available"
+                    })
+
+            elif msg_type == "voice_question":
+                # Handle voice questions from user
+                question_data = data.get("data", {})
+                question_text = question_data.get("text", "")
+
+                logger.info(f"Voice question received: {question_text}")
+
+                # Use LLM engine to answer the question
+                if game_loop and game_loop.llm_engine:
+                    try:
+                        # Generate coaching response (game state context not available yet)
+                        coaching_response = await game_loop.llm_engine.answer_coaching_question(
+                            question_text,
+                            None  # TODO: Pass game state when available
+                        )
+
+                        if coaching_response:
+                            # Broadcast the coaching command to all clients
+                            await manager.broadcast({
+                                "type": "command",
+                                "data": {
+                                    "priority": coaching_response.priority,
+                                    "category": coaching_response.category,
+                                    "icon": coaching_response.icon,
+                                    "message": coaching_response.message,
+                                    "duration": coaching_response.duration,
+                                    "timestamp": coaching_response.timestamp
+                                }
+                            })
+                            logger.info(f"Sent coaching response: {coaching_response.message}")
+                        else:
+                            # Fallback if no response generated
+                            fallback_cmd = CoachingCommand(
+                                priority="medium",
+                                category="advice",
+                                icon="💭",
+                                message="I couldn't understand that. Try asking about laning, farming, or objectives.",
+                                duration=5,
+                                timestamp=time.time()
+                            )
+                            await manager.broadcast({
+                                "type": "command",
+                                "data": {
+                                    "priority": fallback_cmd.priority,
+                                    "category": fallback_cmd.category,
+                                    "icon": fallback_cmd.icon,
+                                    "message": fallback_cmd.message,
+                                    "duration": fallback_cmd.duration,
+                                    "timestamp": fallback_cmd.timestamp
+                                }
+                            })
+                    except Exception as e:
+                        logger.error(f"Error processing voice question: {e}")
+                        # Send error message to user
+                        error_cmd = CoachingCommand(
+                            priority="low",
+                            category="error",
+                            icon="❌",
+                            message="Failed to process question. Please try again.",
+                            duration=3,
+                            timestamp=time.time()
+                        )
+                        await manager.broadcast({
+                            "type": "command",
+                            "data": {
+                                "priority": error_cmd.priority,
+                                "category": error_cmd.category,
+                                "icon": error_cmd.icon,
+                                "message": error_cmd.message,
+                                "duration": error_cmd.duration,
+                                "timestamp": error_cmd.timestamp
+                            }
+                        })
+                else:
+                    logger.warning("LLM engine not available for voice questions")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "AI coach not available"
                     })
 
             else:
