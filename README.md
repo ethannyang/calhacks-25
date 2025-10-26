@@ -1,156 +1,100 @@
-# League of Legends AI Coaching Overlay
+# 🧠 Souma — Real-Time AI League of Legends Coach
 
-Real-time AI coaching overlay for League of Legends that provides actionable guidance through hybrid rule-based and LLM-powered decision making.
+> “Don’t just play League — learn it while you play.”
 
-## Features
+Souma is an **AI-powered real-time coaching overlay** for *League of Legends*.  
+It analyzes your live in-game state and provides **specific, actionable advice** — helping players improve their game sense, mechanics, and decision-making while they play.
 
-- **Transparent Overlay**: Frameless, always-on-top window with click-through
-- **Real-time Coaching**: <500ms latency from game state to recommendations
-- **Hybrid AI**: Fast rule-based engine (<50ms) + strategic LLM decisions (<500ms)
-- **WebSocket Communication**: Real-time bidirectional communication
-- **Priority-Based UI**: Visual styling based on command urgency
+---
 
-## Architecture
+## 🌟 Inspiration
 
-### Backend (Python)
-- **FastAPI**: High-performance async web framework
-- **OpenCV**: Screen capture and image processing
-- **Tesseract/EasyOCR**: OCR for game data extraction
-- **Riot API Client**: Rate-limited API integration
-- **AI Engines**:
-  - Rule Engine: F1 (Safety Warnings), F6 (Recall Timing)
-  - LLM Engine: F2 (Wave Management), F4 (Objective Coaching)
+Most existing League tools only help *before* or *after* your game — with builds, stats, or post-match reviews.  
+But what about **during** the match, when decisions matter most?
 
-### Frontend (Electron + React)
-- **Electron**: Cross-platform desktop overlay
-- **React + TypeScript**: UI components
-- **Zustand**: State management
-- **TailwindCSS**: Styling
-- **WebSocket**: Real-time backend connection
+League has an incredibly high skill floor — both strategically and mechanically.  
+Many players give up before learning how to actually enjoy the game.  
 
-## Setup
+So we asked:  
+> What if an AI coach could guide you live, teaching better habits and strategy in real time?
 
-### Backend Setup
+That’s how **Souma** was born.
 
+---
+
+## ⚙️ What It Does
+
+Souma watches your gameplay and reacts just like a live coach would.  
+It reads your **health, mana, gold, items, minimap state, and lane conditions**, and gives guidance like:
+
+- 🩸 *“Back — low HP, enemy jungler nearby.”*  
+- 💰 *“Recall now — major item spike available.”*  
+- 🧠 *“Freeze the wave under tower.”*  
+- 🗺️ *“Rotate to dragon — 30 seconds to spawn.”*  
+
+This helps players **build instincts** and **learn strategy faster**, turning frustration into confidence and wins.
+
+---
+
+## 🏗️ How It Works
+
+### 🔧 Backend
+- **FastAPI** — Asynchronous API backend for real-time data processing.  
+- **OpenCV** — Captures game frames and extracts ROIs (health bar, mana, gold, minimap).  
+- **Tesseract / EasyOCR** — Optical character recognition for reading in-game text.  
+- **Riot API Client** — Fetches live match data (rate-limited).
+
+### 🧠 AI Engines
+- **Rule Engine (F1, F6)** — For deterministic events like low-health alerts and recall timing.  
+- **LLM Engine (F2, F4)** — For reasoning-based advice such as wave management and objective control.  
+
+### 🖥️ Frontend
+- **Electron + React + TypeScript** — Cross-platform overlay interface.  
+- **Zustand** — Lightweight state management.  
+- **TailwindCSS** — Clean and adaptive styling.  
+- **WebSocket** — Real-time connection between backend and overlay.
+
+---
+
+## 🧩 Challenges
+
+- Building stable **image processing** for a live, animated game environment was a huge challenge.  
+- **Audio synchronization** for abilities and cues was complex to crossmatch in real time.  
+- Integrating **voice input → LLM** interactions took multiple rewrites, but it made the coach feel truly alive.
+
+---
+
+## 🏆 Accomplishments
+
+- Developed a **working live computer vision pipeline** for League of Legends.  
+- Implemented **ROI-specific logic** for gold, health, mana, and minimap awareness.  
+- Built an AI that **prioritizes coaching advice** intelligently (e.g., safety > objectives > wave control).  
+- Watching Souma *call out a gank before it happened* was an unforgettable moment.
+
+---
+
+## 💡 What I Learned
+
+- **Never give up.** Debugging real-time systems tests patience like nothing else.  
+- **Image processing for AI in games** still has huge room to grow.  
+- **Audio-visual fusion** is key to capturing complex game states.  
+- **Voice-driven LLM input** opens up new frontiers for interactive, adaptive AI experiences.
+
+---
+
+## 🚀 Next Steps
+
+- 🧩 Champion-specific advice modules (e.g., different coaching for Garen vs. Fiora).  
+- 🔊 Real-time audio feedback from the AI coach.  
+- 🧠 Personalized learning paths based on player history.  
+- 🕹️ Expand to other esports titles (Dota, Valorant, etc.).
+
+---
+
+## ⚡ Running Locally
+
+### Clone & Install
 ```bash
-cd backend
-
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your API keys
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-
-# Install dependencies
+git clone https://github.com/yourname/souma.git
+cd souma
 npm install
-
-# Development mode
-npm run electron:dev
-```
-
-## Configuration
-
-Edit `backend/.env`:
-
-```env
-RIOT_API_KEY=your_riot_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
-
-Get API keys:
-- **Riot API**: https://developer.riotgames.com/
-- **Anthropic Claude**: https://console.anthropic.com/
-
-## Running the Application
-
-1. **Start Backend**:
-```bash
-cd backend
-python3 main.py
-```
-Backend runs on `http://localhost:8000`
-
-2. **Start Frontend** (in new terminal):
-```bash
-cd frontend
-npm run electron:dev
-```
-
-## Keyboard Shortcuts
-
-- **Ctrl+Shift+C**: Toggle click-through mode
-- **Ctrl+Shift+I**: Toggle DevTools
-- **Ctrl+Shift+R**: Reload overlay
-
-## MVP Features (Phase 1)
-
-- ✅ FastAPI backend with WebSocket
-- ✅ Riot API client with rate limiting
-- ✅ Pydantic data models
-- ✅ Rule-based engine (F1: Safety Warnings)
-- ✅ LLM engine (F2: Wave Management, F4: Objectives)
-- ✅ Electron transparent overlay
-- ✅ React UI with priority-based styling
-- ✅ WebSocket real-time communication
-- 🚧 Screen capture module (Windows)
-- 🚧 OCR extraction (gold, CS, HP/mana)
-
-## Project Structure
-
-```
-calhacks-25/
-├── backend/
-│   ├── src/
-│   │   ├── models/          # Pydantic data models
-│   │   ├── riot_api/        # Riot API client
-│   │   ├── ai_engine/       # Rule + LLM engines
-│   │   ├── capture/         # Screen capture (TODO)
-│   │   └── ocr/             # OCR processing (TODO)
-│   ├── main.py              # FastAPI entry point
-│   └── requirements.txt
-├── frontend/
-│   ├── electron/            # Electron main process
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── services/        # WebSocket service
-│   │   └── store/           # Zustand store
-│   └── package.json
-└── TECHNICAL_PRD.md         # Full technical specification
-```
-
-## Technical Specifications
-
-- **Target Latency**: <500ms end-to-end
-- **CPU Usage**: <10% average
-- **RAM Usage**: <500MB
-- **FPS Impact**: <5%
-- **OCR Accuracy**: 85%+
-
-## Next Steps (Phase 2)
-
-- [ ] Implement screen capture (Windows Graphics Capture API)
-- [ ] Implement OCR extraction pipeline
-- [ ] Add game state aggregation service
-- [ ] Test with live League of Legends game
-- [ ] Add F3-F8 coaching features
-- [ ] macOS/Linux support
-- [ ] TTS for critical warnings
-
-## License
-
-MIT
-
-## Technical PRD
-
-See [TECHNICAL_PRD.md](./TECHNICAL_PRD.md) for complete engineering specification.
