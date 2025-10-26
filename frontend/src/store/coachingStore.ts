@@ -13,16 +13,41 @@ export interface CoachingCommand {
   timestamp: number;
 }
 
+// DirectiveV1 format (LLM-powered coaching)
+export interface DirectivePrimary {
+  window: string;
+  text: string;
+  setup: string;
+  requirements: string;
+  success: string;
+  risk: string;
+  confidence: number;
+}
+
+export interface DirectiveV1 {
+  t: 'directive.v1';
+  ts_ms: number;
+  primary: DirectivePrimary;
+  backupA: string;
+  backupB: string;
+  micro: Record<string, string>;
+  timers: Record<string, number>;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+}
+
+// Union type for both command formats
+export type Command = CoachingCommand | DirectiveV1;
+
 interface CoachingStore {
   // State
-  currentCommand: CoachingCommand | null;
-  commandHistory: CoachingCommand[];
+  currentCommand: Command | null;
+  commandHistory: Command[];
   isConnected: boolean;
   wsConnection: WebSocket | null;
 
   // Actions
-  setCommand: (command: CoachingCommand | null) => void;
-  addToHistory: (command: CoachingCommand) => void;
+  setCommand: (command: Command | null) => void;
+  addToHistory: (command: Command) => void;
   setConnected: (connected: boolean) => void;
   setWsConnection: (ws: WebSocket | null) => void;
   clearCommand: () => void;

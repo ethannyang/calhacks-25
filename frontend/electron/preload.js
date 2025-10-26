@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowSize: (width, height) => ipcRenderer.invoke('set-window-size', width, height),
   setOpacity: (opacity) => ipcRenderer.invoke('set-opacity', opacity),
 
+  // Auto-resize functionality
+  setAutoResize: (enabled) => ipcRenderer.invoke('set-auto-resize', enabled),
+  setPreferredSize: (width, height) => ipcRenderer.invoke('preferred-size', { width, height }),
+
   // Event listeners
   onClickThroughToggled: (callback) => {
     ipcRenderer.on('click-through-toggled', (event, isEnabled) => callback(isEnabled));

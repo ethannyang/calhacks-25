@@ -2,8 +2,7 @@
  * WebSocket service for real-time coaching commands
  */
 
-import { useCoachingStore } from '../store/coachingStore';
-import { CoachingCommand } from '../store/coachingStore';
+import { useCoachingStore, CoachingCommand, DirectiveV1, Command } from '../store/coachingStore';
 
 let ws: WebSocket | null = null;
 let reconnectTimeout: NodeJS.Timeout | null = null;
@@ -30,6 +29,14 @@ export function connectWebSocket(url: string) {
         timestamp: Date.now(),
       }
     }));
+
+    // Start monitoring automatically
+    setTimeout(() => {
+      console.log('Starting game monitoring...');
+      ws?.send(JSON.stringify({
+        type: 'start_monitoring'
+      }));
+    }, 500);
   };
 
   ws.onmessage = (event) => {
@@ -42,8 +49,17 @@ export function connectWebSocket(url: string) {
         case 'command':
           handleCoachingCommand(message.data);
           break;
+        case 'directive':
+          handleDirective(message.data);
+          break;
+        case 'status':
+          console.log('Status:', message.message);
+          break;
         case 'ack':
           console.log('Server acknowledged:', message);
+          break;
+        case 'debug':
+          console.log('Debug info:', message.data);
           break;
         default:
           console.log('Unknown message type:', message.type);
@@ -84,10 +100,30 @@ function handleCoachingCommand(data: CoachingCommand) {
   // Auto-clear after duration
   setTimeout(() => {
     const currentCommand = useCoachingStore.getState().currentCommand;
-    if (currentCommand && currentCommand.timestamp === data.timestamp) {
+    if (currentCommand && 'timestamp' in currentCommand && currentCommand.timestamp === data.timestamp) {
       store.clearCommand();
     }
   }, data.duration * 1000);
+}
+
+function handleDirective(data: DirectiveV1) {
+  console.log('New LLM directive:', data);
+
+  const store = useCoachingStore.getState();
+
+  // Set as current command
+  store.setCommand(data);
+
+  // Add to history
+  store.addToHistory(data);
+
+  // Auto-clear after 8 seconds (directives are more complex, need more time)
+  setTimeout(() => {
+    const currentCommand = useCoachingStore.getState().currentCommand;
+    if (currentCommand && 'ts_ms' in currentCommand && currentCommand.ts_ms === data.ts_ms) {
+      store.clearCommand();
+    }
+  }, 8000);
 }
 
 export function disconnectWebSocket() {
