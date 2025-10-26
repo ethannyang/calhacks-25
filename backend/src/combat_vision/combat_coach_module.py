@@ -29,10 +29,10 @@ class CombatCoachModule:
         """
         # Audio template files for Garen abilities
         self.audio_files = {
-            'Q': '/Users/ethan/Desktop/projects/calhacks-25/45_garen_base_q_oc_01.wav',
-            'W': '/Users/ethan/Desktop/projects/calhacks-25/66_garen_base_w_obd_01.wav',
-            'E': '/Users/ethan/Desktop/projects/calhacks-25/25_garen_base_e_oba_01.wav',
-            'R': '/Users/ethan/Desktop/projects/calhacks-25/58_garen_base_r_oc_01.wav'
+            'Q': '/Users/ethan/Desktop/projects/calhacks-25/GarenQ.wav',
+            'W': '/Users/ethan/Desktop/projects/calhacks-25/GarenW.wav',
+            'E': '/Users/ethan/Desktop/projects/calhacks-25/GarenE.wav',
+            'R': '/Users/ethan/Desktop/projects/calhacks-25/GarenR.wav'
         }
 
         # Initialize audio detector
