@@ -3,9 +3,16 @@ Pydantic models for League of Legends game state
 Represents all data needed for coaching decisions
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+
+
+class Severity(Enum):
+    """Directive severity levels"""
+    INFO = 0
+    WARN = 1
+    DANGER = 2
 
 
 class GamePhase(str, Enum):
@@ -115,3 +122,72 @@ class CoachingCommand(BaseModel):
     message: str = Field(..., description="Directive coaching message")
     duration: int = Field(default=5, description="Display duration in seconds")
     timestamp: float = Field(..., description="Unix timestamp")
+
+
+# ============================================================================
+# Enhanced Models (Spec-aligned)
+# ============================================================================
+
+class ROI(BaseModel):
+    """Region of Interest for screen capture"""
+    name: Literal["gold", "cs", "hp", "mana", "timer", "minimap"]
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+class OcrSnapshot(BaseModel):
+    """OCR extraction snapshot"""
+    ts_ms: int
+    res: str  # e.g., "1920x1080@100%"
+    values: Dict[str, Any]  # {"gold":1250, "cs":68, "timer":"11:40", ...}
+
+
+class RiotLive(BaseModel):
+    """Live data from Riot API"""
+    ts_ms: int
+    game_time: float
+    dragons: Dict[str, int]  # {"ally":1, "enemy":0}
+    baron_alive: bool
+    participants: List[Dict[str, Any]]  # id, champ, lvl, items, sums_cd, etc.
+
+
+class AggregatedState(BaseModel):
+    """Unified game state for decision making"""
+    ts_ms: int
+    lane: str  # top/mid/bot/jg/supp
+    role: str  # adc/support/...
+    hp: float
+    mana: float
+    gold: int
+    cs: int
+    waves: Dict[str, str]  # {"top":"slow_push_to_enemy", ...}
+    mm_missing: int
+    jg_last_seen: Optional[str] = None
+    timers: Dict[str, int]  # {"dragon":70, "herald":-1, "baron":420}
+    vision: Dict[str, bool]  # {"bot_river":True, ...}
+    spikes: Dict[str, bool]  # {"lvl6":True, "mythic_ready":False}
+
+
+class DirectivePrimary(BaseModel):
+    """Primary coaching directive"""
+    window: str  # e.g., "Now→+90s"
+    text: str  # Main directive
+    setup: str  # How to prepare
+    requirements: str  # What you need
+    success: str  # Expected outcome
+    risk: str  # Potential danger
+    confidence: float  # 0.0-1.0
+
+
+class DirectiveV1(BaseModel):
+    """Complete directive message (wire format)"""
+    t: Literal["directive.v1"] = "directive.v1"
+    ts_ms: int
+    primary: DirectivePrimary
+    backupA: str
+    backupB: str
+    micro: Dict[str, str]  # {"top":"hold TP", "jg":"hover mid→bot", ...}
+    timers: Dict[str, int]  # {"dragon":45, "malphiteR":40, ...}
+    priority: Literal["low", "medium", "high", "critical"]

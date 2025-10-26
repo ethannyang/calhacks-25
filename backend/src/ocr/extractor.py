@@ -8,6 +8,7 @@ import cv2
 import pytesseract
 from typing import Optional, Dict, Any
 import re
+import sys
 from loguru import logger
 
 
@@ -15,6 +16,10 @@ class GameDataExtractor:
     """Extract game data from screen captures using OCR"""
 
     def __init__(self):
+        # Configure Tesseract path for Windows
+        if sys.platform == 'win32':
+            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
         self.tesseract_config = '--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:'
         self.gold_config = '--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789'
 

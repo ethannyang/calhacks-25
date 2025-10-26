@@ -10,15 +10,15 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from capture.macos import MacOSCapture
+from capture import get_capture
 from loguru import logger
 
 
 def main():
     logger.info("Starting screen capture test...")
 
-    # Create capture instance
-    capture = MacOSCapture()
+    # Create capture instance (platform-aware)
+    capture = get_capture()
 
     # List all windows
     logger.info("Listing all windows...")

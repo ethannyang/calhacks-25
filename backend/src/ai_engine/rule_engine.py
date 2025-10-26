@@ -4,11 +4,11 @@ Target latency: <50ms
 Handles F1: Safety Warnings and other reactive coaching
 """
 
-from typing import Optional
+from typing import Optional, List, Tuple
 import time
 from loguru import logger
 
-from ..models.game_state import GameState, CoachingCommand
+from ..models.game_state import GameState, CoachingCommand, Severity
 
 
 class RuleEngine:
@@ -25,6 +25,30 @@ class RuleEngine:
             self.last_warning_time[category] = now
             return True
         return False
+
+    def rule_safety_enhanced(self, state: GameState) -> List[Tuple[str, Severity]]:
+        """
+        Enhanced safety rules with severity levels (spec-aligned)
+        Returns list of (message, severity) tuples
+        """
+        out = []
+
+        # Rule: Multiple enemies missing + no vision + past mid
+        if state.vision.enemy_missing_count >= 3:
+            if state.wave.wave_position == "enemy_tower":
+                out.append(("⚠️ DANGER: Back off - 3+ missing, no vision", Severity.DANGER))
+
+        # Rule: Low HP + enemy jungler nearby
+        hp_percent = state.player.hp / state.player.hp_max if state.player.hp_max > 0 else 1.0
+        if hp_percent < 0.30:
+            if state.vision.enemy_visible_count >= 1:
+                out.append(("⚠️ WARNING: Low HP + enemies nearby, ward/hover tower", Severity.WARN))
+
+        # Rule: Very low HP
+        if hp_percent < 0.15:
+            out.append(("🚨 CRITICAL: HP critical - recall or die", Severity.DANGER))
+
+        return out
 
     def check_safety(self, game_state: GameState) -> Optional[CoachingCommand]:
         """
