@@ -73,19 +73,21 @@ class GameLoop:
         self.last_live_api_time = 0
 
         # Initialize Combat Coach Module for Darius vs Garen
+        # Always initialize for voice input support, but only enable audio if device configured
         audio_device = os.getenv("AUDIO_DEVICE_INDEX")
         if audio_device:
             try:
                 audio_device_index = int(audio_device)
                 self.combat_coach = CombatCoachModule(audio_device_index=audio_device_index)
-                logger.info(f"Combat coach module enabled (audio device: {audio_device_index})")
+                logger.info(f"Combat coach enabled: audio detection + voice input (device: {audio_device_index})")
             except ValueError:
-                logger.warning("Invalid AUDIO_DEVICE_INDEX, combat coaching disabled")
-                self.combat_coach = None
+                logger.warning("Invalid AUDIO_DEVICE_INDEX, using voice input only")
+                self.combat_coach = CombatCoachModule(audio_device_index=None)
         else:
-            logger.info("AUDIO_DEVICE_INDEX not set, combat coaching disabled")
-            logger.info("To enable combat coaching: add AUDIO_DEVICE_INDEX to .env")
-            self.combat_coach = None
+            # Create combat coach without audio detection (voice input only)
+            self.combat_coach = CombatCoachModule(audio_device_index=None)
+            logger.info("Combat coach enabled: voice input only (no audio detection)")
+            logger.info("To enable audio detection: add AUDIO_DEVICE_INDEX to .env")
 
         # State
         self.running = False
@@ -110,38 +112,63 @@ class GameLoop:
         else:
             return GamePhase.LATE
 
+    def _estimate_level_from_time(self, game_time: int) -> int:
+        """Estimate player level based on game time (rough approximation)"""
+        # Typical leveling curve: Level 1 at start, ~Level 6 at 10min, ~Level 11 at 20min, ~Level 16 at 30min
+        minutes = game_time / 60
+        if minutes < 1:
+            return 1
+        elif minutes < 10:
+            return min(18, int(1 + minutes * 0.5))  # Slow early leveling
+        elif minutes < 20:
+            return min(18, int(6 + (minutes - 10) * 0.5))  # Mid game
+        else:
+            return min(18, int(11 + (minutes - 20) * 0.25))  # Late game slower
+
     def _build_game_state(self, game_data: dict, frame_time: float) -> Optional[GameState]:
         """
         Build GameState from OCR extracted data + LiveGameManager context
         """
-        # Validate required fields
+        # Validate required fields - use fallbacks if missing
         game_time = game_data.get('game_time')
         if game_time is None:
-            logger.warning("Missing game_time, cannot build game state")
-            return None
+            logger.warning("Missing game_time from OCR, using fallback")
+            # Fallback: estimate based on how long the loop has been running
+            if not hasattr(self, 'game_start_time'):
+                self.game_start_time = time.time()
+            game_time = int(time.time() - self.game_start_time)
 
         # Get live game context if available
         live_context = {}
         if self.live_game_mgr and self.live_game_mgr.is_in_game():
             live_context = self.live_game_mgr.get_context_summary()
 
-        # Build player state with live game data
+        # Build player state with REAL OCR data + API data
         champion_name = live_context.get('player', {}).get('champion', 'Unknown')
         player_role = live_context.get('player', {}).get('role', 'unknown')
 
+        # Use OCR data with sensible defaults - handle None values properly
+        gold_value = game_data.get('gold')
+        if gold_value is None:
+            gold_value = 500 + game_time * 20  # Fallback: passive gold gen
+
+        cs_value = game_data.get('cs')
+        if cs_value is None:
+            cs_value = 0  # Default to 0 CS
+
         player = PlayerState(
             champion_name=champion_name,
-            summoner_name="Player",
-            level=10,  # Mock data
+            summoner_name=live_context.get('player', {}).get('summoner_name', 'Player'),
+            level=game_data.get('level', self._estimate_level_from_time(game_time)),  # Estimate if not available
             hp=int(game_data.get('hp_percent', 100)),
             hp_max=100,
             mana=int(game_data.get('mana_percent', 100)),
             mana_max=100,
-            gold=game_data.get('gold', 0),
-            cs=game_data.get('cs', 0),
-            kills=0,
-            deaths=0,
-            assists=0
+            gold=gold_value,
+            cs=cs_value,
+            kills=game_data.get('kills', 0),  # Will add KDA extraction later
+            deaths=game_data.get('deaths', 0),
+            assists=game_data.get('assists', 0)
         )
 
         # Build objectives (mock data for now)
@@ -295,16 +322,24 @@ class GameLoop:
         # Initialize Combat Coach Module if available
         if self.combat_coach and not self.combat_coach_initialized:
             try:
-                success = await self.combat_coach.start()
-                if success:
-                    self.combat_coach_initialized = True
-                    logger.info("✅ Combat coach module started (audio detection active)")
+                # Only start audio capture if audio device is configured
+                if self.combat_coach.audio_device_index is not None:
+                    success = await self.combat_coach.start()
+                    if success:
+                        self.combat_coach_initialized = True
+                        logger.info("✅ Combat coach started: audio detection + voice input active")
+                    else:
+                        logger.warning("❌ Audio detection failed, voice input only")
+                        self.combat_coach_initialized = True  # Still allow voice input
                 else:
-                    logger.warning("❌ Combat coach failed to start")
-                    self.combat_coach = None
+                    # No audio device, but voice input still works
+                    self.combat_coach_initialized = True
+                    logger.info("✅ Combat coach started: voice input ready (no audio detection)")
             except Exception as e:
                 logger.error(f"Failed to start combat coach: {e}")
-                self.combat_coach = None
+                # Don't nullify combat_coach - keep it for voice input
+                self.combat_coach_initialized = True
+                logger.info("Combat coach available for voice input only")
 
         try:
             while self.running:

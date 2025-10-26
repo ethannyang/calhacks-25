@@ -1,11 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import CommandCard from './components/CommandCard';
 import ConnectionStatus from './components/ConnectionStatus';
+import VoiceInput from './components/VoiceInput';
+import CooldownDisplay from './components/CooldownDisplay';
 import { useCoachingStore } from './store/coachingStore';
 import { connectWebSocket } from './services/websocket';
 
 function App() {
   const { currentCommand, isConnected } = useCoachingStore();
+  const [isVoiceListening, setIsVoiceListening] = useState(false);
 
   useEffect(() => {
     // Connect to backend WebSocket
@@ -15,6 +18,12 @@ function App() {
     if (window.electron) {
       window.electron.onClickThroughToggled((isEnabled: boolean) => {
         console.log('Click-through toggled:', isEnabled);
+      });
+
+      // Listen for voice input toggle events from Electron
+      window.electron.onVoiceInputToggle((isActive: boolean) => {
+        console.log('Voice input toggled:', isActive);
+        setIsVoiceListening(isActive);
       });
     }
   }, []);
@@ -33,6 +42,12 @@ function App() {
           Waiting for coaching data...
         </div>
       )}
+
+      {/* Voice input component */}
+      <VoiceInput isListening={isVoiceListening} onListeningChange={setIsVoiceListening} />
+
+      {/* Cooldown tracker */}
+      <CooldownDisplay />
     </div>
   );
 }

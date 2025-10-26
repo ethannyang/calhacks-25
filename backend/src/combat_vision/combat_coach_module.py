@@ -103,6 +103,49 @@ class CombatCoachModule:
         self.garen_e_result = self.audio_detector.detect_garen_e()
         self.garen_r_active = self.audio_detector.detect_garen_r()
 
+    def manual_report_ability(self, ability: str, target: str = "enemy"):
+        """
+        Manually report an ability use via voice input
+        Bypasses audio detection and directly triggers cooldown tracking
+
+        Args:
+            ability: Ability identifier (Q, W, E, R, Flash, Ignite, etc.)
+            target: Who used the ability ("enemy", "Garen", etc.)
+        """
+        ability_upper = ability.upper()
+
+        logger.info(f"🎤 Manual report: {target} used {ability_upper}")
+
+        # Map basic abilities to detector methods
+        if ability_upper == 'Q':
+            self.audio_detector.last_q_time = time.time()
+            self.garen_q_active = True
+            logger.info(f"✓ Tracked {target} Q - Cooldown started")
+
+        elif ability_upper == 'W':
+            self.audio_detector.last_w_time = time.time()
+            self.garen_w_active = True
+            logger.info(f"✓ Tracked {target} W - Cooldown started")
+
+        elif ability_upper == 'E':
+            self.audio_detector.last_e_time = time.time()
+            self.audio_detector.garen_e_start_time = time.time()
+            self.garen_e_result = {'spinning': True, 'duration': 0}
+            logger.info(f"✓ Tracked {target} E - Cooldown started")
+
+        elif ability_upper == 'R':
+            self.audio_detector.last_r_time = time.time()
+            self.garen_r_active = True
+            logger.info(f"✓ Tracked {target} R - Cooldown started")
+
+        elif ability_upper in ['FLASH', 'IGNITE', 'TELEPORT', 'HEAL', 'BARRIER', 'EXHAUST', 'GHOST', 'CLEANSE', 'SMITE']:
+            # Summoner spells - log but don't track cooldowns yet
+            # Could extend this to track summoner spell cooldowns in the future
+            logger.info(f"✓ Noted {target} {ability_upper} (summoner tracking not yet implemented)")
+
+        else:
+            logger.warning(f"⚠ Unknown ability: {ability_upper}")
+
     def get_combat_command(self, game_state: GameState) -> Optional[CoachingCommand]:
         """
         Get combat coaching command based on current game state and detected abilities

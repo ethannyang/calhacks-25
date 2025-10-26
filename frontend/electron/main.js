@@ -5,9 +5,30 @@
 
 const { app, BrowserWindow, screen, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
+const { uIOhook, UiohookKey } = require('uiohook-napi');
 
 let mainWindow;
 let isClickThrough = false;  // Start with click-through disabled so window is more visible
+let isVoiceInputActive = false;  // Track voice input state
+
+// Handle EPIPE errors gracefully to prevent app crashes
+process.on('uncaughtException', (error) => {
+  if (error.code === 'EPIPE') {
+    // Ignore EPIPE errors from console.log
+    return;
+  }
+  // Log other errors but don't crash
+  console.error('Uncaught exception:', error);
+});
+
+// Safe console logging wrapper
+function safeLog(...args) {
+  try {
+    console.log(...args);
+  } catch (e) {
+    // Silently ignore console errors
+  }
+}
 
 function createWindow() {
   // Get primary display dimensions
@@ -15,12 +36,12 @@ function createWindow() {
   const { width, height } = primaryDisplay.workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: 450,
-    height: 200,
-    x: width - 470,  // Position in top-right
-    y: 20,
-    frame: false,
-    transparent: true,
+    width: 500,
+    height: 300,
+    x: width - 520,  // Position in top-right (20px from right edge)
+    y: 20,  // 20px from top
+    frame: true,  // Show frame for easier visibility
+    transparent: false,  // Disable transparency to make it more visible
     alwaysOnTop: true,
     skipTaskbar: false,  // Show in taskbar for now (easier to close during dev)
     resizable: true,
@@ -28,10 +49,14 @@ function createWindow() {
     fullscreenable: false,  // Prevent fullscreen mode
     hasShadow: true,  // Add shadow to make window more visible
     opacity: 1.0,  // Full opacity initially
+    backgroundColor: '#1a1a1a',  // Dark background so it's visible
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // Enable media access for speech recognition
+      enableRemoteModule: false,
+      sandbox: false,  // Disable sandbox to allow speech API
     }
   });
 
@@ -41,7 +66,7 @@ function createWindow() {
   try {
     mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
   } catch (e) {
-    console.warn('Could not set screen-saver level, trying pop-up-menu:', e);
+    safeLog('Could not set screen-saver level, trying pop-up-menu:', e);
     mainWindow.setAlwaysOnTop(true, 'pop-up-menu', 1);
   }
   mainWindow.setVisibleOnAllWorkspaces(true);
@@ -62,6 +87,16 @@ function createWindow() {
   if (isClickThrough) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
   }
+
+  // Grant permission for media devices (microphone for speech recognition)
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media') {
+      // Approve microphone access for speech recognition
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
 
   // Load the app
   if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
@@ -88,7 +123,7 @@ function registerShortcuts() {
       isClickThrough = !isClickThrough;
       mainWindow.setIgnoreMouseEvents(isClickThrough, { forward: true });
       mainWindow.webContents.send('click-through-toggled', isClickThrough);
-      console.log(`Click-through: ${isClickThrough ? 'enabled' : 'disabled'}`);
+      safeLog(`Click-through: ${isClickThrough ? 'enabled' : 'disabled'}`);
     }
   });
 
@@ -133,10 +168,52 @@ function setupIPCHandlers() {
   });
 }
 
+function setupKeyboardMonitoring() {
+  // Monitor T key for push-to-talk
+  uIOhook.on('keydown', (e) => {
+    // T key
+    if (e.keycode === UiohookKey.T) {
+      if (!isVoiceInputActive) {
+        isVoiceInputActive = true;
+        if (mainWindow) {
+          mainWindow.webContents.send('voice-input-toggle', true);
+        }
+        safeLog('Voice input activated');
+      }
+    }
+  });
+
+  uIOhook.on('keyup', (e) => {
+    // T key
+    if (e.keycode === UiohookKey.T) {
+      if (isVoiceInputActive) {
+        isVoiceInputActive = false;
+        if (mainWindow) {
+          mainWindow.webContents.send('voice-input-toggle', false);
+        }
+        safeLog('Voice input deactivated');
+      }
+    }
+  });
+
+  // Start the keyboard hook
+  uIOhook.start();
+  safeLog('Keyboard monitoring started (T key for voice input)');
+}
+
+// Enable features for speech recognition
+app.commandLine.appendSwitch('enable-speech-input');
+app.commandLine.appendSwitch('enable-web-speech-api');
+// Allow insecure content for development (needed for Speech API in some cases)
+app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
+// Ensure audio input is allowed
+app.commandLine.appendSwitch('enable-features', 'AudioServiceOutOfProcess');
+
 // App lifecycle
 app.whenReady().then(() => {
   setupIPCHandlers();
   createWindow();
+  setupKeyboardMonitoring();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -152,8 +229,18 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  // Unregister all shortcuts
-  globalShortcut.unregisterAll();
+  // Unregister all shortcuts (only if app was ready)
+  if (app.isReady()) {
+    globalShortcut.unregisterAll();
+  }
+
+  // Stop keyboard monitoring
+  try {
+    uIOhook.stop();
+    safeLog('Keyboard monitoring stopped');
+  } catch (e) {
+    safeLog('Error stopping keyboard monitoring:', e);
+  }
 });
 
 // Prevent multiple instances

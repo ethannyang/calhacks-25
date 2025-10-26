@@ -3,7 +3,7 @@
  */
 
 import { useCoachingStore } from '../store/coachingStore';
-import { CoachingCommand } from '../store/coachingStore';
+import { CoachingCommand, AbilityCooldowns } from '../store/coachingStore';
 
 let ws: WebSocket | null = null;
 let reconnectTimeout: NodeJS.Timeout | null = null;
@@ -22,14 +22,18 @@ export function connectWebSocket(url: string) {
     useCoachingStore.getState().setConnected(true);
     useCoachingStore.getState().setWsConnection(ws);
 
-    // Send initial config
-    ws?.send(JSON.stringify({
-      type: 'config',
-      data: {
-        clientVersion: '0.1.0',
-        timestamp: Date.now(),
+    // Send initial config after a small delay to ensure connection is ready
+    setTimeout(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'config',
+          data: {
+            clientVersion: '0.1.0',
+            timestamp: Date.now(),
+          }
+        }));
       }
-    }));
+    }, 100);
   };
 
   ws.onmessage = (event) => {
@@ -41,6 +45,9 @@ export function connectWebSocket(url: string) {
       switch (message.type) {
         case 'command':
           handleCoachingCommand(message.data);
+          break;
+        case 'cooldowns':
+          handleCooldownUpdate(message.data);
           break;
         case 'ack':
           console.log('Server acknowledged:', message);
@@ -88,6 +95,13 @@ function handleCoachingCommand(data: CoachingCommand) {
       store.clearCommand();
     }
   }, data.duration * 1000);
+}
+
+function handleCooldownUpdate(data: AbilityCooldowns) {
+  console.log('Cooldown update:', data);
+
+  const store = useCoachingStore.getState();
+  store.setEnemyCooldowns(data);
 }
 
 export function disconnectWebSocket() {

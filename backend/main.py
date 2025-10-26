@@ -162,12 +162,50 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             logger.info(f"Received from client: {data}")
 
-            # Echo back for now (placeholder)
-            await websocket.send_json({
-                "type": "ack",
-                "message": "Message received",
-                "data": data
-            })
+            # Handle different message types
+            msg_type = data.get("type")
+
+            if msg_type == "ability_used":
+                # Manual ability reporting from voice input
+                ability_data = data.get("data", {})
+                ability = ability_data.get("ability")
+                target = ability_data.get("target", "enemy")
+
+                logger.info(f"Voice input: {target} used {ability}")
+
+                # Forward to combat coach module
+                if game_loop and game_loop.combat_coach:
+                    game_loop.combat_coach.manual_report_ability(ability, target)
+                    logger.info(f"Reported {ability} to combat coach")
+
+                    # Get updated cooldowns
+                    cooldowns = game_loop.combat_coach.audio_detector.get_ability_cooldowns()
+
+                    # Broadcast cooldowns to all clients
+                    await manager.broadcast({
+                        "type": "cooldowns",
+                        "data": cooldowns
+                    })
+
+                    # Send acknowledgment
+                    await websocket.send_json({
+                        "type": "ack",
+                        "message": f"Tracked {target} {ability}",
+                        "data": ability_data
+                    })
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Combat coach not available"
+                    })
+
+            else:
+                # Default acknowledgment for other message types
+                await websocket.send_json({
+                    "type": "ack",
+                    "message": "Message received",
+                    "data": data
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)

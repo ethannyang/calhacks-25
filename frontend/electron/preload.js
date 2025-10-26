@@ -16,4 +16,8 @@ contextBridge.exposeInMainWorld('electron', {
   onClickThroughToggled: (callback) => {
     ipcRenderer.on('click-through-toggled', (event, isEnabled) => callback(isEnabled));
   },
+
+  onVoiceInputToggle: (callback) => {
+    ipcRenderer.on('voice-input-toggle', (event, isActive) => callback(isActive));
+  },
 });

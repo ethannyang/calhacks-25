@@ -1,0 +1,17 @@
+{
+  "name": "voice-proxy",
+  "version": "1.0.0",
+  "description": "WebSocket proxy for Deepgram speech-to-text",
+  "main": "voice_proxy.js",
+  "scripts": {
+    "start": "node voice_proxy.js",
+    "dev": "nodemon voice_proxy.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

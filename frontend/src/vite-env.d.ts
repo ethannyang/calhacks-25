@@ -7,5 +7,12 @@ interface Window {
     setWindowSize: (width: number, height: number) => Promise<void>;
     setOpacity: (opacity: number) => Promise<void>;
     onClickThroughToggled: (callback: (isEnabled: boolean) => void) => void;
+    onVoiceInputToggle: (callback: (isActive: boolean) => void) => void;
   };
+}
+
+// Web Speech API types
+interface Window {
+  SpeechRecognition: typeof SpeechRecognition;
+  webkitSpeechRecognition: typeof SpeechRecognition;
 }

@@ -13,12 +13,20 @@ export interface CoachingCommand {
   timestamp: number;
 }
 
+export interface AbilityCooldowns {
+  Q: number;
+  W: number;
+  E: number;
+  R: number;
+}
+
 interface CoachingStore {
   // State
   currentCommand: CoachingCommand | null;
   commandHistory: CoachingCommand[];
   isConnected: boolean;
   wsConnection: WebSocket | null;
+  enemyCooldowns: AbilityCooldowns | null;
 
   // Actions
   setCommand: (command: CoachingCommand | null) => void;
@@ -26,6 +34,7 @@ interface CoachingStore {
   setConnected: (connected: boolean) => void;
   setWsConnection: (ws: WebSocket | null) => void;
   clearCommand: () => void;
+  setEnemyCooldowns: (cooldowns: AbilityCooldowns | null) => void;
 }
 
 export const useCoachingStore = create<CoachingStore>((set) => ({
@@ -34,6 +43,7 @@ export const useCoachingStore = create<CoachingStore>((set) => ({
   commandHistory: [],
   isConnected: false,
   wsConnection: null,
+  enemyCooldowns: null,
 
   // Actions
   setCommand: (command) => set({ currentCommand: command }),
@@ -48,4 +58,6 @@ export const useCoachingStore = create<CoachingStore>((set) => ({
   setWsConnection: (ws) => set({ wsConnection: ws }),
 
   clearCommand: () => set({ currentCommand: null }),
+
+  setEnemyCooldowns: (cooldowns) => set({ enemyCooldowns: cooldowns }),
 }));
